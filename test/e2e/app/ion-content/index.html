@@ -1,0 +1,30 @@
+<script src="https://unpkg.com/@ionic/core@4.0.0-alpha.1/dist/ionic.js"></script>
+<script src="/dist/app.js"></script>
+
+<style>
+  ion-content {
+    position: static;
+    -webkit-box-flex: unset;
+    -webkit-flex: unset;
+    -ms-flex: unset;
+    flex: unset;
+    will-change: unset;
+    contain: unset;
+  }
+  ion-scroll {
+    left: unset;
+    right: unset;
+    top: unset;
+    bottom: unset;
+    position: static;
+    z-index: unset;
+    display: block;
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: unset;
+    will-change: unset;
+    contain: unset;
+  }
+</style>
+
+<slot-ion-content></slot-ion-content>
