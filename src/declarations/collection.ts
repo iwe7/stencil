@@ -1,4 +1,4 @@
-import * as d from './index';
+import * as d from '.';
 
 
 export interface Collection {
@@ -8,6 +8,7 @@ export interface Collection {
   global?: ModuleFile;
   compiler?: CollectionCompiler;
   isInitialized?: boolean;
+  hasExports?: boolean;
   dependencies?: string[];
   bundles?: {
     components: string[];
@@ -34,7 +35,10 @@ export interface AppRegistry {
 
 
 export interface AppRegistryComponents {
-  [tagName: string]: string | d.BundleIds;
+  [tagName: string]: {
+    bundleIds: d.BundleIds,
+    encapsulation?: 'shadow' | 'scoped';
+  };
 }
 
 
@@ -44,12 +48,18 @@ export interface ModuleFiles {
 
 
 export interface ModuleFile {
+  sourceFilePath: string;
   jsFilePath?: string;
   dtsFilePath?: string;
   cmpMeta?: d.ComponentMeta;
   isCollectionDependency?: boolean;
   excludeFromCollection?: boolean;
   originalCollectionComponentPath?: string;
+  externalImports?: string[];
+  localImports?: string[];
+  potentialCmpRefs?: d.PotentialComponentRef[];
+  hasSlot?: boolean;
+  hasSvg?: boolean;
 }
 
 

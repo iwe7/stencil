@@ -1,21 +1,30 @@
-import { BuildCtx, CompilerCtx, Config, EntryModule, JSModuleList } from '../../declarations';
-import bundleEntryFile from './rollup-plugins/bundle-entry-file';
+import * as d from '../../declarations';
+import abortPlugin from './rollup-plugins/abort-plugin';
 import bundleJson from './rollup-plugins/json';
 import { createOnWarnFn, loadRollupDiagnostics } from '../../util/logger/logger-rollup';
-import { generatePreamble, hasError } from '../util';
-import { getBundleIdPlaceholder } from '../../util/data-serialize';
+import { getUserCompilerOptions } from '../transpile/compiler-options';
 import localResolution from './rollup-plugins/local-resolution';
 import inMemoryFsRead from './rollup-plugins/in-memory-fs-read';
-import { InputOptions, OutputChunk, rollup } from 'rollup';
-import nodeEnvVars from './rollup-plugins/node-env-vars';
+import { RollupBuild, RollupDirOptions } from 'rollup'; // types only
 import pathsResolution from './rollup-plugins/paths-resolution';
-import resolveCollections from './rollup-plugins/resolve-collections';
+import pluginHelper from './rollup-plugins/plugin-helper';
+import rollupPluginReplace from './rollup-plugins/rollup-plugin-replace';
+import statsPlugin from './rollup-plugins/rollup-stats-plugin';
 
 
-export async function createBundle(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, entryModules: EntryModule[]) {
-  const builtins = require('rollup-plugin-node-builtins');
-  const globals = require('rollup-plugin-node-globals');
-  let rollupBundle: OutputChunk;
+export async function createBundle(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, entryModules: d.EntryModule[]) {
+  if (!buildCtx.isActiveBuild) {
+    buildCtx.debug(`createBundle aborted, not active build`);
+  }
+
+  const replaceObj = {
+    'Build.isDev': !!config.devMode,
+    'process.env.NODE_ENV': config.devMode ? 'development' : 'production'
+  };
+
+  const timeSpan = buildCtx.createTimeSpan(`createBundle started`, true);
+
+  let rollupBundle: RollupBuild;
 
   const commonjsConfig = {
     include: 'node_modules/**',
@@ -23,77 +32,57 @@ export async function createBundle(config: Config, compilerCtx: CompilerCtx, bui
     ...config.commonjs
   };
 
-  const rollupConfig: InputOptions = {
-    input: entryModules.map(b => b.entryKey),
+  const nodeResolveConfig: d.NodeResolveConfig = {
+    jsnext: true,
+    main: true,
+    ...config.nodeResolve
+  };
+
+  const tsCompilerOptions = await getUserCompilerOptions(config, compilerCtx, buildCtx);
+
+  const rollupConfig: RollupDirOptions = {
+    ...config.rollupConfig.inputOptions,
+    input: entryModules.map(b => b.filePath),
     experimentalCodeSplitting: true,
     preserveSymlinks: false,
+    treeshake: !config.devMode,
+    cache: config.enableCache ? compilerCtx.rollupCache : undefined,
     plugins: [
-      resolveCollections(compilerCtx),
-      config.sys.rollup.plugins.nodeResolve({
-        jsnext: true,
-        main: true
+      abortPlugin(buildCtx),
+      rollupPluginReplace({
+        values: replaceObj
       }),
+      config.sys.rollup.plugins.nodeResolve(nodeResolveConfig),
+      config.sys.rollup.plugins.emptyJsResolver(),
       config.sys.rollup.plugins.commonjs(commonjsConfig),
       bundleJson(config),
-      globals(),
-      builtins(),
-      bundleEntryFile(config, entryModules),
-      inMemoryFsRead(config, config.sys.path, compilerCtx),
-      await pathsResolution(config, compilerCtx),
+      inMemoryFsRead(config, compilerCtx, buildCtx, entryModules),
+      pathsResolution(config, compilerCtx, tsCompilerOptions),
       localResolution(config, compilerCtx),
-      nodeEnvVars(config),
-      ...config.plugins
+      ...config.plugins,
+      statsPlugin(buildCtx),
+      pluginHelper(config, compilerCtx, buildCtx),
+      abortPlugin(buildCtx)
     ],
     onwarn: createOnWarnFn(config, buildCtx.diagnostics)
   };
 
   try {
-    rollupBundle = await rollup(rollupConfig);
-
+    rollupBundle = await config.sys.rollup.rollup(rollupConfig);
+    compilerCtx.rollupCache = rollupBundle.cache;
   } catch (err) {
-    console.log(err);
-    loadRollupDiagnostics(config, compilerCtx, buildCtx, err);
-  }
+    // clean rollup cache if error
+    compilerCtx.rollupCache = undefined;
 
-  if (hasError(buildCtx.diagnostics) || !rollupBundle) {
-    throw new Error('rollup died');
-  }
+    // looks like there was an error bundling!
+    if (buildCtx.isActiveBuild) {
+      loadRollupDiagnostics(config, compilerCtx, buildCtx, err);
 
-  return rollupBundle;
-}
-
-
-export async function writeEsModules(config: Config, rollupBundle: OutputChunk) {
-  const results = await rollupBundle.generate({
-    format: 'es',
-    banner: generatePreamble(config),
-    intro: `const { h } = window.${config.namespace};`,
-  });
-  return <any>results as JSModuleList;
-}
-
-
-export async function writeLegacyModules(config: Config, rollupBundle: OutputChunk, entryModules: EntryModule[]) {
-  const { chunks } = <any>rollupBundle;
-  Object.keys(chunks).map(key => {
-    return [key, chunks[key]];
-  }).forEach(([key, value]) => {
-    const entryModule = entryModules.find(b => b.entryKey === `./${key}.js`);
-    if (entryModule) {
-      entryModule.dependencies = (<any>value).imports.slice();
+    } else {
+      buildCtx.debug(`createBundle errors ignored, not active build`);
     }
-  });
+  }
 
-  const results = await rollupBundle.generate({
-    format: 'amd',
-    amd: {
-      id: getBundleIdPlaceholder(),
-      define: `${config.namespace}.loadBundle`
-    },
-    banner: generatePreamble(config),
-    intro: `const h = window.${config.namespace}.h;`,
-    strict: false,
-  });
-
-  return <any>results as JSModuleList;
+  timeSpan.finish(`createBundle finished`);
+  return rollupBundle;
 }

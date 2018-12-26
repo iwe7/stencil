@@ -1,34 +1,38 @@
 import * as d from '../declarations';
 import { attachStyles } from '../core/styles';
-import { Build } from '../util/build-conditionals';
 import { createDomApi } from '../renderer/dom-api';
 import { createRendererPatch } from '../renderer/vdom/patch';
 import { createVNodesFromSsr } from '../renderer/vdom/ssr';
 import { createQueueClient } from './queue-client';
-import { CustomStyle } from './css-shim/custom-style';
+import { CustomStyle } from './polyfills/css-shim/custom-style';
 import { enableEventListener } from '../core/listeners';
 import { generateDevInspector } from './dev-inspector';
 import { h } from '../renderer/vdom/h';
 import { initCoreComponentOnReady } from '../core/component-on-ready';
-import { initCssVarShim } from './css-shim/init-css-shim';
 import { initHostElement } from '../core/init-host-element';
-import { initHostSnapshot } from '../core/host-snapshot';
 import { initStyleTemplate } from '../core/styles';
 import { parseComponentLoader } from '../util/data-parse';
 import { proxyController } from '../core/proxy-controller';
 import { queueUpdate } from '../core/update';
-import { toDashCase } from '../util/helpers';
-import { useScopedCss } from '../renderer/vdom/encapsulation';
 
 
-export function createPlatformMainLegacy(namespace: string, Context: d.CoreContext, win: Window, doc: Document, resourcesUrl: string, hydratedCssClass: string) {
+export function createPlatformMainLegacy(namespace: string, Context: d.CoreContext, win: d.WindowData, doc: Document, resourcesUrl: string, hydratedCssClass: string, components: d.ComponentHostData[], customStyle: CustomStyle) {
+  const perf = win.performance;
+  if (_BUILD_.profile) {
+    perf.mark(`app_load_start`);
+  }
+
   const cmpRegistry: d.ComponentRegistry = { 'html': {} };
   const bundleQueue: d.BundleCallback[] = [];
-  const loadedBundles: {[bundleId: string]: any} = {};
-  const pendingBundleRequests: {[url: string]: boolean} = {};
+  const loadedBundles = new Map<string, d.CjsExports>();
+  const pendingBundleRequests = new Set<string>();
   const controllerComponents: {[tag: string]: d.HostElement} = {};
   const App: d.AppGlobal = (win as any)[namespace] = (win as any)[namespace] || {};
   const domApi = createDomApi(App, win, doc);
+
+  if (_BUILD_.isDev && _BUILD_.shadowDom && domApi.$supportsShadowDom && customStyle) {
+    console.error('Unsupported browser. Native shadow-dom available but CSS Custom Properites are not.');
+  }
 
   // set App Context
   Context.isServer = Context.isPrerender = !(Context.isClient = true);
@@ -37,11 +41,11 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
   Context.document = doc;
   Context.resourcesUrl = Context.publicPath = resourcesUrl;
 
-  if (Build.listener) {
+  if (_BUILD_.listener) {
     Context.enableListener = (instance, eventName, enabled, attachTo, passive) => enableEventListener(plt, instance, eventName, enabled, attachTo, passive);
   }
 
-  if (Build.event) {
+  if (_BUILD_.event) {
     Context.emit = (elm: Element, eventName: string, data: d.EventEmitterData) => domApi.$dispatchEvent(elm, Context.eventNameFn ? Context.eventNameFn(eventName) : eventName, data);
   }
 
@@ -50,7 +54,7 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
   App.Context = Context;
 
   // keep a global set of tags we've already defined
-  const globalDefined: {[tag: string]: boolean} = (win as any).$definedCmps = (win as any).$definedCmps || {};
+  const globalDefined: {[tag: string]: boolean} = win['s-defined'] = (win['s-defined'] || {});
 
   // internal id increment for unique ids
   let ids = 0;
@@ -60,6 +64,7 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
     domApi,
     defineComponent,
     emitEvent: Context.emit,
+    customStyle,
     getComponentMeta: elm => cmpRegistry[domApi.$tagName(elm)],
     getContextItem: contextKey => Context[contextKey],
     isClient: true,
@@ -67,14 +72,18 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
     onError: (err, type, elm) => console.error(err, type, elm && elm.tagName),
     nextId: () => namespace + (ids++),
     propConnect: ctrlTag => proxyController(domApi, controllerComponents, ctrlTag),
-    queue: createQueueClient(App, win),
+    queue: (Context.queue = createQueueClient(App, win)),
     requestBundle: requestBundle,
+    isAppLoaded: false,
+    activeRender: false,
+    tmpDisconnected: false,
 
     ancestorHostElementMap: new WeakMap(),
     componentAppliedStyles: new WeakMap(),
     hasConnectedMap: new WeakMap(),
     hasListenersMap: new WeakMap(),
-    hasLoadedMap: new WeakMap(),
+    isCmpLoaded: new WeakMap(),
+    isCmpReady: new WeakMap(),
     hostElementMap: new WeakMap(),
     hostSnapshotMap: new WeakMap(),
     instanceMap: new WeakMap(),
@@ -83,39 +92,60 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
     onReadyCallbacksMap: new WeakMap(),
     queuedEvents: new WeakMap(),
     vnodeMap: new WeakMap(),
-    valuesMap: new WeakMap()
+    valuesMap: new WeakMap(),
+
+    processingCmp: new Set(),
+    onAppReadyCallbacks: []
   };
+
+  // create a method that returns a promise
+  // which gets resolved when the app's queue is empty
+  // and app is idle, works for both initial load and updates
+  App.onReady = () => new Promise(resolve => plt.queue.write(() => plt.processingCmp.size ? plt.onAppReadyCallbacks.push(resolve) : resolve()));
 
   // create the renderer that will be used
   plt.render = createRendererPatch(plt, domApi);
 
   // setup the root element which is the mighty <html> tag
   // the <html> has the final say of when the app has loaded
-  const rootElm = domApi.$documentElement as d.HostElement;
+  const rootElm = domApi.$doc.documentElement as d.HostElement;
   rootElm['s-ld'] = [];
   rootElm['s-rn'] = true;
 
   // this will fire when all components have finished loaded
   rootElm['s-init'] = () => {
-    plt.hasLoadedMap.set(rootElm, App.loaded = plt.isAppLoaded = true);
+    plt.isCmpReady.set(rootElm, App.loaded = plt.isAppLoaded = true);
     domApi.$dispatchEvent(win, 'appload', { detail: { namespace: namespace } });
+
+    if (_BUILD_.profile) {
+      perf.mark('app_load_end');
+      perf.measure('app_load', 'app_load_start', 'app_load_end');
+    }
   };
 
-  // if the HTML was generated from SSR
-  // then let's walk the tree and generate vnodes out of the data
-  createVNodesFromSsr(plt, domApi, rootElm);
+  if (_BUILD_.prerenderClientSide || _BUILD_.prerenderExternal) {
+    // if the HTML was generated from prerendering
+    // then let's walk the tree and generate vnodes out of the data
+    createVNodesFromSsr(plt, domApi, rootElm);
+  }
 
 
   function defineComponent(cmpMeta: d.ComponentMeta, HostElementConstructor: any) {
 
-    if (!globalDefined[cmpMeta.tagNameMeta]) {
+    if (!win.customElements.get(cmpMeta.tagNameMeta)) {
       // keep a map of all the defined components
       globalDefined[cmpMeta.tagNameMeta] = true;
 
       // initialize the members on the host element prototype
-      initHostElement(plt, cmpMeta, HostElementConstructor.prototype, hydratedCssClass);
+      // keep a ref to the metadata with the tag as the key
+      initHostElement(plt,
+        (cmpRegistry[cmpMeta.tagNameMeta] = cmpMeta),
+        HostElementConstructor.prototype,
+        hydratedCssClass,
+        perf
+      );
 
-      if (Build.observeAttr) {
+      if (_BUILD_.observeAttr) {
         // add which attributes should be observed
         const observedAttributes: string[] = [];
 
@@ -136,56 +166,99 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
         HostElementConstructor.observedAttributes = observedAttributes;
       }
 
+      if (_BUILD_.profile) {
+        perf.mark(`define_start:${cmpMeta.tagNameMeta}`);
+      }
+
       // define the custom element
       win.customElements.define(cmpMeta.tagNameMeta, HostElementConstructor);
+
+      if (_BUILD_.profile) {
+        perf.mark(`define_end:${cmpMeta.tagNameMeta}`);
+        perf.measure(`define:${cmpMeta.tagNameMeta}`, `define_start:${cmpMeta.tagNameMeta}`, `define_end:${cmpMeta.tagNameMeta}`);
+      }
     }
   }
 
-  /**
-   * Execute a bundle queue item
-   * @param name
-   * @param deps
-   * @param callback
-   */
-  function execBundleCallback(name: string, deps: string[], callback: Function) {
+  function getLoadedBundle(bundleId: string, hmrVersionId?: string) {
+    if (_BUILD_.hotModuleReplacement && hmrVersionId) {
+      loadedBundles.delete(bundleId.replace(/^\.\//, ''));
+    }
+
+    if (bundleId == null) {
+      return null;
+    }
+
+    return loadedBundles.get(bundleId.replace(/^\.\//, ''));
+  }
+
+  function isLoadedBundle(id: string) {
+    if (id === 'exports' || id === 'require') {
+      return true;
+    }
+    return !!getLoadedBundle(id);
+  }
+
+  function execBundleCallback(bundleId: string, deps: string[], callback: Function) {
     const bundleExports: d.CjsExports = {};
 
     try {
-      callback(bundleExports, ...deps.map(d => loadedBundles[d]));
+      callback.apply(null, deps.map(d => {
+        if (d === 'exports') return bundleExports;
+        if (d === 'require') return userRequire;
+        return getLoadedBundle(d);
+      }));
     } catch (e) {
       console.error(e);
     }
 
     // If name is undefined then this callback was fired by component callback
-    if (name === undefined) {
+    if (bundleId === undefined) {
       return;
     }
 
-    loadedBundles[name] = bundleExports;
+    loadedBundles.set(bundleId, bundleExports);
 
     // If name contains chunk then this callback was associated with a dependent bundle loading
     // let's add a reference to the constructors on each components metadata
     // each key in moduleImports is a PascalCased tag name
-    if (!name.startsWith('./chunk')) {
+    if (bundleId && !bundleId.endsWith('.js')) {
       Object.keys(bundleExports).forEach(pascalCasedTagName => {
-        const cmpMeta = cmpRegistry[toDashCase(pascalCasedTagName)];
-        if (cmpMeta) {
-          // get the component constructor from the module
-          cmpMeta.componentConstructor = bundleExports[pascalCasedTagName];
+        const normalizedTagName = pascalCasedTagName.replace(/-/g, '').toLowerCase();
 
-          initStyleTemplate(domApi, cmpMeta, cmpMeta.componentConstructor);
+        const registryTags = Object.keys(cmpRegistry);
+        for (let i = 0; i < registryTags.length; i++) {
+          const normalizedRegistryTag = registryTags[i].replace(/-/g, '').toLowerCase();
+
+          if (normalizedRegistryTag === normalizedTagName) {
+            const cmpMeta = cmpRegistry[registryTags[i]];
+            if (cmpMeta) {
+              // get the component constructor from the module
+              cmpMeta.componentConstructor = bundleExports[pascalCasedTagName];
+
+              if (_BUILD_.styles) {
+                initStyleTemplate(domApi, cmpMeta, cmpMeta.encapsulationMeta, cmpMeta.componentConstructor.style, cmpMeta.componentConstructor.styleMode, perf);
+              }
+            }
+            break;
+          }
         }
       });
     }
+  }
+
+  function userRequire(ids: string[], resolve: Function) {
+    loadBundle(undefined, ids, resolve);
   }
 
   /**
    * Check to see if any items in the bundle queue can be executed
    */
   function checkQueue() {
-    for (let i = bundleQueue.length - 1; i > -1; i--) {
+    for (let i = bundleQueue.length - 1; i >= 0; i--) {
       const [bundleId, dependentsList, importer] = bundleQueue[i];
-      if (dependentsList.every(dep => loadedBundles[dep]) && !loadedBundles[bundleId]) {
+      if (dependentsList.every(isLoadedBundle) && !isLoadedBundle(bundleId)) {
+        bundleQueue.splice(i, 1);
         execBundleCallback(bundleId, dependentsList, importer);
       }
     }
@@ -194,28 +267,24 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
   /**
    * This function is called anytime a JS file is loaded
    */
-  App.loadBundle = function loadBundle(bundleId: string, [, ...dependentsList]: string[], importer: Function) {
-
-    const missingDependents = dependentsList.filter(d => !loadedBundles[d]);
+  function loadBundle(bundleId: string | undefined, dependentsList: string[], importer: Function) {
+    const missingDependents = dependentsList.filter(d => !isLoadedBundle(d));
     missingDependents.forEach(d => {
-        const url = resourcesUrl + d.replace('.js', '.es5.js');
-        requestUrl(url);
-      });
+      requestUrl(resourcesUrl + d.replace('.js', '.es5.js'));
+    });
     bundleQueue.push([bundleId, dependentsList, importer]);
 
     // If any dependents are not yet met then queue the bundle execution
     if (missingDependents.length === 0) {
       checkQueue();
     }
-  };
+  }
+  App.loadBundle = loadBundle;
 
 
-  let customStyle: CustomStyle;
   let requestBundleQueue: Function[] = [];
-  if (Build.cssVarShim) {
-    customStyle = new CustomStyle(win, doc);
-
-    initCssVarShim(win, doc, customStyle, () => {
+  if (_BUILD_.cssVarShim && customStyle) {
+    customStyle.initShim().then(() => {
       // loaded all the css, let's run all the request bundle callbacks
       while (requestBundleQueue.length) {
         requestBundleQueue.shift()();
@@ -227,82 +296,75 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
   }
 
   // This is executed by the component's connected callback.
-  function requestBundle(cmpMeta: d.ComponentMeta, elm: d.HostElement) {
-    // set the "mode" property
-    if (!elm.mode) {
-      // looks like mode wasn't set as a property directly yet
-      // first check if there's an attribute
-      // next check the app's global
-      elm.mode = domApi.$getAttribute(elm, 'mode') || Context.mode;
-    }
-
-    // remember a "snapshot" of this host element's current attributes/child nodes/slots/etc
-    initHostSnapshot(plt.domApi, cmpMeta, elm);
-
+  function requestBundle(cmpMeta: d.ComponentMeta, elm: d.HostElement, hmrVersionId: string) {
     const bundleId = (typeof cmpMeta.bundleIds === 'string') ?
       cmpMeta.bundleIds :
-      cmpMeta.bundleIds[elm.mode];
+      (cmpMeta.bundleIds as d.BundleIds)[elm.mode];
 
-    if (loadedBundles[bundleId]) {
+    if (getLoadedBundle(bundleId, hmrVersionId)) {
       // sweet, we've already loaded this bundle
-      queueUpdate(plt, elm);
+      queueUpdate(plt, elm, perf);
 
     } else {
       // never seen this bundle before, let's start the request
       // and add it to the callbacks to fire when it has loaded
       bundleQueue.push([undefined, [bundleId], () => {
-        queueUpdate(plt, elm);
+        queueUpdate(plt, elm, perf);
       }]);
 
       // when to request the bundle depends is we're using the css shim or not
-      if (Build.cssVarShim && !customStyle.supportsCssVars) {
+      if (_BUILD_.cssVarShim && customStyle) {
         // using css shim, so we've gotta wait until it's ready
         if (requestBundleQueue) {
           // add this to the loadBundleQueue to run when css is ready
-          requestBundleQueue.push(() => {
-            requestComponentBundle(cmpMeta, bundleId);
-          });
+          requestBundleQueue.push(() => requestComponentBundle(bundleId, hmrVersionId));
 
         } else {
           // css already all loaded
-          requestComponentBundle(cmpMeta, bundleId);
+          requestComponentBundle(bundleId, hmrVersionId);
         }
 
       } else {
         // not using css shim, so no need to wait on css shim to finish
         // figure out which bundle to request and kick it off
-        requestComponentBundle(cmpMeta, bundleId);
+        requestComponentBundle(bundleId, hmrVersionId);
       }
     }
   }
 
 
-  function requestComponentBundle(cmpMeta: d.ComponentMeta, bundleId: string, url?: string, tmrId?: any, scriptElm?: HTMLScriptElement) {
+  function requestComponentBundle(bundleId: string, hmrVersionId: string) {
     // create the url we'll be requesting
     // always use the es5/jsonp callback module
-    url = resourcesUrl + bundleId + ((useScopedCss(domApi.$supportsShadowDom, cmpMeta) ? '.sc' : '') + '.es5.js');
+    const useScopedCss = _BUILD_.shadowDom && !domApi.$supportsShadowDom;
+    let url = resourcesUrl + bundleId + (useScopedCss ? '.sc' : '') + '.es5.entry.js';
 
-    requestUrl(url, tmrId, scriptElm);
+    if (_BUILD_.hotModuleReplacement && hmrVersionId) {
+      url += '?s-hmr=' + hmrVersionId;
+    }
+
+    requestUrl(url);
   }
 
 
   // Use JSONP to load in bundles
-  function requestUrl(url?: string, tmrId?: any, scriptElm?: HTMLScriptElement) {
-
+  function requestUrl(url: string) {
+    let tmrId: any;
+    let scriptElm: HTMLScriptElement;
     function onScriptComplete() {
       clearTimeout(tmrId);
       scriptElm.onerror = scriptElm.onload = null;
       domApi.$remove(scriptElm);
 
       // remove from our list of active requests
-      pendingBundleRequests[url] = false;
+      pendingBundleRequests.delete(url);
     }
 
-    if (!pendingBundleRequests[url]) {
+    if (!pendingBundleRequests.has(url)) {
       // we're not already actively requesting this url
       // let's kick off the bundle request and
       // remember that we're now actively requesting this url
-      pendingBundleRequests[url] = true;
+      pendingBundleRequests.add(url);
 
       // create a sript element to add to the document.head
       scriptElm = domApi.$createElement('script');
@@ -318,39 +380,58 @@ export function createPlatformMainLegacy(namespace: string, Context: d.CoreConte
 
       // inject a script tag in the head
       // kick off the actual request
-      domApi.$appendChild(domApi.$head, scriptElm);
+      domApi.$appendChild(domApi.$doc.head, scriptElm);
     }
   }
 
-  if (Build.styles) {
-    plt.attachStyles = (plt, domApi, cmpMeta, modeName, elm) => {
-      attachStyles(plt, domApi, cmpMeta, modeName, elm, customStyle);
+  if (_BUILD_.styles) {
+    plt.attachStyles = (plt, domApi, cmpMeta, elm) => {
+      attachStyles(plt, domApi, cmpMeta, elm);
     };
   }
 
-  if (Build.devInspector) {
-    generateDevInspector(App, namespace, window, plt);
+  if (_BUILD_.devInspector) {
+    generateDevInspector(namespace, win, plt, components);
   }
 
   // register all the components now that everything's ready
-  (App.components || [])
-    .map(data => parseComponentLoader(data, cmpRegistry))
+  if (_BUILD_.profile) {
+    perf.mark(`define_custom_elements_start`);
+  }
+
+  components
+    .map(data => {
+      const cmpMeta = parseComponentLoader(data);
+      return cmpRegistry[cmpMeta.tagNameMeta] = cmpMeta;
+    })
     .forEach(cmpMeta => {
-    // es5 way of extending HTMLElement
-    function HostElement(self: any) {
-      return HTMLElement.call(this, self);
+      // es5 way of extending HTMLElement
+      function HostElement(self: any) {
+        return HTMLElement.call(this, self);
+      }
+
+      HostElement.prototype = Object.create(
+        HTMLElement.prototype,
+        { constructor: { value: HostElement, configurable: true } }
+      );
+
+      defineComponent(cmpMeta, HostElement);
     }
+  );
 
-    HostElement.prototype = Object.create(
-      HTMLElement.prototype,
-      { constructor: { value: HostElement, configurable: true } }
-    );
+  if (_BUILD_.profile) {
+    perf.mark(`define_custom_elements_end`);
+    perf.measure(`define_custom_elements`, `define_custom_elements_start`, `define_custom_elements_end`);
+  }
 
-    plt.defineComponent(cmpMeta, HostElement);
-  });
+  if (!plt.hasConnectedComponent) {
+    // we just defined call the custom elements but no
+    // connectedCallbacks happened, so no components in the dom :(
+    rootElm['s-init']();
+  }
 
   // create the componentOnReady fn
-  initCoreComponentOnReady(plt, App);
+  initCoreComponentOnReady(plt, App, win, win['s-apps'], win['s-cr']);
 
   // notify that the app has initialized and the core script is ready
   // but note that the components have not fully loaded yet

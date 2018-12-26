@@ -1,4 +1,4 @@
-import * as d from './index';
+import * as d from '.';
 
 
 export interface InMemoryFileSystem {
@@ -15,9 +15,6 @@ export interface InMemoryFileSystem {
    * @param filePath
    */
   accessSync(filePath: string): boolean;
-  copy(src: string, dest: string, opts?: {
-      filter?: (src: string, dest?: string) => boolean;
-  }): Promise<void>;
   emptyDir(dirPath: string): Promise<void>;
   readdir(dirPath: string, opts?: d.FsReaddirOptions): Promise<d.FsReaddirItem[]>;
   readFile(filePath: string, opts?: d.FsReadOptions): Promise<string>;
@@ -26,7 +23,7 @@ export interface InMemoryFileSystem {
    * (Only typescript transpiling is allowed to use)
    * @param filePath
    */
-  readFileSync(filePath: string): string;
+  readFileSync(filePath: string, opts?: d.FsReadOptions): string;
   remove(itemPath: string): Promise<void>;
   stat(itemPath: string): Promise<{
       isFile: boolean;
@@ -51,6 +48,8 @@ export interface InMemoryFileSystem {
       dirsDeleted: string[];
       dirsAdded: string[];
   }>;
+  cancelDeleteFilesFromDisk(filePaths: string[]): void;
+  cancelDeleteDirectoriesFromDisk(filePaths: string[]): void;
   clearDirCache(dirPath: string): void;
   clearFileCache(filePath: string): void;
   getItem(itemPath: string): d.FsItem;

@@ -1,20 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 
-process.title = 'Stencil';
-
-var minNodeVersion = '6.11.0';
-var semver = require('semver');
-
-if (process.argv.indexOf('--skip-node-check') === -1 && semver.lt(process.version, minNodeVersion)) {
-  console.error(`Your Node.js version is ${process.version}. Stencil requires a minimum of version ${minNodeVersion}. Please update to the latest Node LTS version.`);
-  process.exit(1);
-}
-
 var cli = require('../dist/cli/index.js');
 var nodeSys = require('../dist/sys/node/index.js');
 
 var sys = new nodeSys.NodeSystem();
 var logger = new nodeSys.NodeLogger();
+
+try {
+  var v = process.version.replace('v', '').split('.');
+  var major = parseInt(v[0], 10);
+  var minor = parseInt(v[1], 10);
+  if (major < 8 || (major === 8 && minor < 9)) {
+    logger.warn(logger.yellow('Your current version of Node is ' + process.version + ', however the recommendation is a minimum of Node 8.x LTS. Note that future versions of Stencil will eventually remove support for non-LTS Node versions.'));
+  }
+} catch (e) {}
 
 cli.run(process, sys, logger);

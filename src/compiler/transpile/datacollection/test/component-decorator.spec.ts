@@ -10,7 +10,7 @@ describe('component decorator', () => {
     it('simple decorator', () => {
       let response;
       const sourceFilePath = path.resolve(__dirname, './fixtures/component-simple');
-      const metadata = gatherMetadata(sourceFilePath, (checker, classNode) => {
+      gatherMetadata(sourceFilePath, (checker, classNode) => {
         response = getComponentDecoratorMeta([], checker, classNode);
       });
 
@@ -18,10 +18,11 @@ describe('component decorator', () => {
         tagNameMeta: 'ion-action-sheet',
         hostMeta: {},
         stylesMeta: {},
-        encapsulation: ENCAPSULATION.NoEncapsulation,
+        encapsulationMeta: ENCAPSULATION.NoEncapsulation,
         jsdoc: {
           documentation: '',
           name: 'ActionSheet',
+          tags: [],
           type: 'typeof ActionSheet'
         },
         assetsDirsMeta: [],
@@ -32,7 +33,7 @@ describe('component decorator', () => {
     it('shadow encapsulation', () => {
       let response;
       const sourceFilePath = path.resolve(__dirname, './fixtures/component-shadow');
-      const metadata = gatherMetadata(sourceFilePath, (checker, classNode) => {
+      gatherMetadata(sourceFilePath, (checker, classNode) => {
         response = getComponentDecoratorMeta([], checker, classNode);
       });
 
@@ -40,10 +41,11 @@ describe('component decorator', () => {
         tagNameMeta: 'ion-action-sheet',
         hostMeta: {},
         stylesMeta: {},
-        encapsulation: ENCAPSULATION.ShadowDom,
+        encapsulationMeta: ENCAPSULATION.ShadowDom,
         jsdoc: {
           documentation: '',
           name: 'ActionSheet',
+          tags: [],
           type: 'typeof ActionSheet'
         },
         assetsDirsMeta: [],
@@ -54,7 +56,7 @@ describe('component decorator', () => {
     it('scoped encapsulation', () => {
       let response;
       const sourceFilePath = path.resolve(__dirname, './fixtures/component-scoped');
-      const metadata = gatherMetadata(sourceFilePath, (checker, classNode) => {
+      gatherMetadata(sourceFilePath, (checker, classNode) => {
         response = getComponentDecoratorMeta([], checker, classNode);
       });
 
@@ -63,10 +65,11 @@ describe('component decorator', () => {
         hostMeta: {},
         stylesMeta: {},
         assetsDirsMeta: [],
-        encapsulation: ENCAPSULATION.ScopedCss,
+        encapsulationMeta: ENCAPSULATION.ScopedCss,
         jsdoc: {
           documentation: '',
           name: 'ActionSheet',
+          tags: [],
           type: 'typeof ActionSheet'
         },
         dependencies: []
@@ -76,16 +79,17 @@ describe('component decorator', () => {
     it('should gather jsdoc and hostmeta and styles', () => {
       let response;
       const sourceFilePath = path.resolve(__dirname, './fixtures/component-example');
-      const metadata = gatherMetadata(sourceFilePath, (checker, classNode) => {
+      gatherMetadata(sourceFilePath, (checker, classNode) => {
         response = getComponentDecoratorMeta([], checker, classNode);
       });
 
       expect(response).toEqual({
         tagNameMeta: 'ion-action-sheet',
-        encapsulation: ENCAPSULATION.NoEncapsulation,
+        encapsulationMeta: ENCAPSULATION.NoEncapsulation,
         jsdoc: {
           documentation: 'This is an actionSheet class',
           name: 'ActionSheet',
+          tags: [],
           type: 'typeof ActionSheet'
         },
         hostMeta: {

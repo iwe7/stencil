@@ -1,22 +1,29 @@
 import * as d from '../../declarations';
 import { APP_NAMESPACE_REGEX } from '../../util/constants';
-import { formatComponentLoaderRegistry } from '../../util/data-serialize';
-import { generatePreamble, minifyJs } from '../util';
-import { getLoaderFileName, getLoaderPath } from './app-file-naming';
+import { formatBrowserLoaderComponentTagNames } from '../../util/data-serialize';
+import { generatePreamble } from '../util';
+import { getLoaderPath } from './app-file-naming';
+import { minifyJs } from '../minifier';
 
 
 export async function generateLoader(
   config: d.Config,
   compilerCtx: d.CompilerCtx,
-  outputTarget: d.OutputTarget,
+  buildCtx: d.BuildCtx,
+  outputTarget: d.OutputTargetBuild,
   appRegistry: d.AppRegistry,
   cmpRegistry: d.ComponentRegistry
 ) {
-  const appLoaderFileName = getLoaderFileName(config);
 
-  const clientLoaderSource = `loader.js`;
+  if (buildCtx.hasError || !buildCtx.isActiveBuild) {
+    return null;
+  }
 
-  let loaderContent = await config.sys.getClientCoreFile({ staticName: clientLoaderSource });
+  const appLoaderPath = getLoaderPath(config, outputTarget);
+  const relPath = config.sys.path.relative(config.rootDir, appLoaderPath);
+  const timeSpan = buildCtx.createTimeSpan(`generateLoader started, ${relPath}`, true);
+
+  let loaderContent = await config.sys.getClientCoreFile({ staticName: CLIENT_LOADER_SOURCE });
 
   loaderContent = injectAppIntoLoader(
     config,
@@ -28,45 +35,35 @@ export async function generateLoader(
     loaderContent
   );
 
-  // write the app loader file
-  // app loader file is actually different from our last saved version
-  config.logger.debug(`build, app loader: ${appLoaderFileName}`);
-
   if (config.minifyJs) {
-    // minify the loader
-    const minifyJsResults = await minifyJs(config, compilerCtx, loaderContent, 'es5', true);
-    minifyJsResults.diagnostics.forEach(d => {
-      (config.logger as any)[d.level](d.messageText);
-    });
-
-    if (!minifyJsResults.diagnostics.length) {
-      loaderContent = minifyJsResults.output;
-    }
+    // minify the loader which should always be es5
+    loaderContent = await minifyJs(config, compilerCtx, buildCtx.diagnostics, loaderContent, 'es5', true, buildCtx.timestamp);
 
   } else {
     // dev
-    loaderContent = generatePreamble(config) + '\n' + loaderContent;
+    loaderContent = generatePreamble(config, { suffix: buildCtx.timestamp }) + '\n' + loaderContent;
   }
 
-  const appLoadPath = getLoaderPath(config, outputTarget);
-  await compilerCtx.fs.writeFile(appLoadPath, loaderContent);
+  await compilerCtx.fs.writeFile(appLoaderPath, loaderContent);
+
+  timeSpan.finish(`generateLoader finished, ${relPath}`);
 
   return loaderContent;
 }
 
+const CLIENT_LOADER_SOURCE = `loader.js`;
+
 
 export function injectAppIntoLoader(
   config: d.Config,
-  outputTarget: d.OutputTargetWww,
+  outputTarget: d.OutputTargetBuild,
   appCoreFileName: string,
   appCorePolyfilledFileName: string,
   hydratedCssClass: string,
   cmpRegistry: d.ComponentRegistry,
   loaderContent: string
 ) {
-  const cmpLoaderRegistry = formatComponentLoaderRegistry(cmpRegistry);
-
-  const cmpLoaderRegistryStr = JSON.stringify(cmpLoaderRegistry);
+  const cmpTags = formatBrowserLoaderComponentTagNames(cmpRegistry);
 
   const resourcesUrl = outputTarget.resourcesUrl ? `"${outputTarget.resourcesUrl}"` : 0;
 
@@ -77,7 +74,7 @@ export function injectAppIntoLoader(
     `"${appCoreFileName}"`,
     `"${appCorePolyfilledFileName}"`,
     `"${hydratedCssClass}"`,
-    cmpLoaderRegistryStr,
+    `"${cmpTags.join(',')}"`,
     'HTMLElement.prototype'
   ].join(',');
 

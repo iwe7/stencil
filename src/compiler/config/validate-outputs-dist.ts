@@ -8,6 +8,7 @@ export function validateOutputTargetDist(config: d.Config) {
   const distOutputTargets = (config.outputTargets as d.OutputTargetDist[]).filter(o => o.type === 'dist');
 
   distOutputTargets.forEach(outputTarget => {
+
     if (!outputTarget.dir) {
       outputTarget.dir = DEFAULT_DIR;
     }
@@ -30,6 +31,10 @@ export function validateOutputTargetDist(config: d.Config) {
 
     if (!path.isAbsolute(outputTarget.collectionDir)) {
       outputTarget.collectionDir = normalizePath(path.join(outputTarget.dir, outputTarget.collectionDir));
+    }
+
+    if (!outputTarget.esmLoaderPath) {
+      outputTarget.esmLoaderPath = DEFAULT_ESM_LOADER_DIR;
     }
 
     if (!outputTarget.typesDir) {
@@ -56,3 +61,4 @@ const DEFAULT_BUILD_DIR = '';
 const DEFAULT_EMPTY_DIR = true;
 const DEFAULT_COLLECTION_DIR = 'collection';
 const DEFAULT_TYPES_DIR = 'types';
+const DEFAULT_ESM_LOADER_DIR = 'loader';

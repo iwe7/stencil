@@ -13,8 +13,7 @@ describe('validateConfig', () => {
     config = {
       sys: sys,
       logger: logger,
-      rootDir: '/User/some/path/',
-      suppressTypeScriptErrors: true,
+      rootDir: '/User/some/path/'
     };
   });
 
@@ -41,7 +40,7 @@ describe('validateConfig', () => {
     };
     config.outputTargets = [www];
     validateConfig(config);
-    const outputTarget: d.OutputTargetWww = config.outputTargets.find(o => o.type === 'www');
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
     expect(outputTarget.dir).toContain('somedir');
     expect(outputTarget.buildDir).toContain('someotherdir');
     expect(outputTarget.indexHtml).toContain('some.html');
@@ -52,11 +51,51 @@ describe('validateConfig', () => {
     expect(outputTarget.prerenderLocations).toEqual([{ path: '/docs/' }]);
   });
 
+  it('allow for preRender urls', () => {
+    const www: d.OutputTargetWww = {
+      type: 'www',
+      prerenderLocations: [
+        {
+          path: '/'
+        }, {
+          path: '/repos'
+        }
+      ]
+    };
+    config.outputTargets = [www];
+    validateConfig(config);
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
+    expect(outputTarget.baseUrl).toBe('/');
+    expect(outputTarget.prerenderLocations).toEqual([
+      { path: '/' }, { path: '/repos' }
+    ]);
+  });
+
+  it('default ssr when flag true, prod mode', () => {
+    config.flags = { ssr: true };
+    validateConfig(config);
+
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
+    expect(outputTarget.baseUrl).toBe('/');
+    expect(outputTarget.canonicalLink).toBe(true);
+    expect(outputTarget.collapseWhitespace).toBe(true);
+    expect(outputTarget.hydrateComponents).toBe(true);
+    expect(outputTarget.inlineStyles).toBe(true);
+    expect(outputTarget.inlineLoaderScript).toBe(true);
+    expect(outputTarget.inlineAssetsMaxSize).toBe(0);
+    expect(outputTarget.prerenderUrlCrawl).toBe(false);
+    expect(outputTarget.prerenderLocations).toEqual([]);
+    expect(outputTarget.prerenderPathHash).toBe(false);
+    expect(outputTarget.prerenderPathQuery).toBe(false);
+    expect(outputTarget.prerenderMaxConcurrent).toBe(0);
+    expect(outputTarget.removeUnusedStyles).toBe(false);
+  });
+
   it('default prerender when flag true, prod mode', () => {
     config.flags = { prerender: true };
     validateConfig(config);
 
-    const outputTarget: d.OutputTargetWww = config.outputTargets.find(o => o.type === 'www');
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
     expect(outputTarget.baseUrl).toBe('/');
     expect(outputTarget.canonicalLink).toBe(true);
     expect(outputTarget.collapseWhitespace).toBe(true);
@@ -75,7 +114,7 @@ describe('validateConfig', () => {
   it('defaults, prod mode, no hydrate prerender without prerender flag', () => {
     validateConfig(config);
 
-    const outputTarget: d.OutputTargetWww = config.outputTargets.find(o => o.type === 'www');
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
     expect(outputTarget.baseUrl).toBe('/');
     expect(outputTarget.canonicalLink).toBe(false);
     expect(outputTarget.collapseWhitespace).toBe(true);
@@ -95,7 +134,7 @@ describe('validateConfig', () => {
     config.devMode = true;
     validateConfig(config);
 
-    const outputTarget: d.OutputTargetWww = config.outputTargets.find(o => o.type === 'www');
+    const outputTarget = config.outputTargets.find(o => o.type === 'www') as d.OutputTargetWww;
     expect(outputTarget.baseUrl).toBe('/');
     expect(outputTarget.canonicalLink).toBe(false);
     expect(outputTarget.collapseWhitespace).toBe(false);

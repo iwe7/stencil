@@ -39,10 +39,18 @@ export function validateOutputTargets(config: d.Config) {
   }
 
   config.outputTargets.forEach(outputTarget => {
-    validateResourcesUrl(outputTarget);
-    validateServiceWorker(config, outputTarget);
+    validateResourcesUrl(outputTarget as d.OutputTargetBuild);
+    validateServiceWorker(config, outputTarget as d.OutputTargetWww);
   });
 }
 
 
-const VALID_TYPES = ['angular', 'dist', 'docs', 'stats', 'www'];
+const VALID_TYPES = [
+  'angular',
+  'dist',
+  'docs',
+  'docs-json',
+  'docs-custom',
+  'stats',
+  'www'
+];

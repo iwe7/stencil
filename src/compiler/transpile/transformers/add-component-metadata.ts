@@ -1,9 +1,9 @@
 import * as d from '../../../declarations';
 import { convertValueToLiteral } from './util';
-import { DEFAULT_STYLE_MODE, ENCAPSULATION } from '../../../util/constants';
-import { getStyleIdPlaceholder, getStylePlaceholder } from '../../../util/data-serialize';
-import { formatComponentConstructorEvents, formatComponentConstructorProperties } from '../../../util/data-serialize';
-import * as ts from 'typescript';
+import { DEFAULT_STYLE_MODE } from '../../../util/constants';
+import { formatComponentConstructorEvents, formatComponentConstructorListeners, formatComponentConstructorProperties } from '../../../util/data-serialize';
+import { formatConstructorEncapsulation, getStyleIdPlaceholder, getStylePlaceholder } from '../../../util/data-serialize';
+import ts from 'typescript';
 
 
 export default function addComponentMetadata(moduleFiles: d.ModuleFiles): ts.TransformerFactory<ts.SourceFile> {
@@ -55,11 +55,9 @@ export function addStaticMeta(cmpMeta: d.ComponentMeta) {
 
   staticMembers.is = convertValueToLiteral(cmpMeta.tagNameMeta);
 
-  if (cmpMeta.encapsulation === ENCAPSULATION.ShadowDom) {
-    staticMembers.encapsulation = convertValueToLiteral('shadow');
-
-  } else if (cmpMeta.encapsulation === ENCAPSULATION.ScopedCss) {
-    staticMembers.encapsulation = convertValueToLiteral('scoped');
+  const encapsulation = formatConstructorEncapsulation(cmpMeta.encapsulationMeta);
+  if (encapsulation) {
+    staticMembers.encapsulation = convertValueToLiteral(encapsulation);
   }
 
   if (cmpMeta.hostMeta && Object.keys(cmpMeta.hostMeta).length > 0) {
@@ -74,6 +72,11 @@ export function addStaticMeta(cmpMeta: d.ComponentMeta) {
   const eventsMeta = formatComponentConstructorEvents(cmpMeta.eventsMeta);
   if (eventsMeta && eventsMeta.length > 0) {
     staticMembers.events = convertValueToLiteral(eventsMeta);
+  }
+
+  const listenerMeta = formatComponentConstructorListeners(cmpMeta.listenersMeta);
+  if (listenerMeta && listenerMeta.length > 0) {
+    staticMembers.listeners = convertValueToLiteral(listenerMeta);
   }
 
   if (cmpMeta.stylesMeta) {
@@ -105,6 +108,7 @@ export interface ConstructorComponentMeta {
   didChange?: ts.Expression;
   willChange?: ts.Expression;
   events?: ts.Expression;
+  listeners?: ts.Expression;
   style?: ts.Expression;
   styleMode?: ts.Expression;
 }

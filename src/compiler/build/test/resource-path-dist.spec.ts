@@ -1,5 +1,5 @@
 import * as d from '../../../declarations';
-import { mockElement, mockHtml } from '../../../testing/mocks';
+import { mockDom } from '../../../testing/mocks';
 import { TestingCompiler } from '../../../testing/testing-compiler';
 import { TestingConfig } from '../../../testing/testing-config';
 import * as path from 'path';
@@ -9,12 +9,14 @@ describe('dist loader/core resourcesUrl', () => {
 
   let c: TestingCompiler;
   let config: TestingConfig;
+  const root = path.resolve('/');
 
 
   it('default config', async () => {
+    jest.setTimeout(15000);
     config = new TestingConfig();
     config.buildAppCore = true;
-    config.rootDir = '/User/testing/';
+    config.rootDir = path.join(root, 'User', 'testing', '/');
     config.namespace = 'MyApp';
     config.outputTargets = [
       {
@@ -23,23 +25,26 @@ describe('dist loader/core resourcesUrl', () => {
     ];
 
     c = new TestingCompiler(config);
-    const distOutput: d.OutputTargetDist = config.outputTargets.find(o => o.type === 'dist');
+    const distOutput = config.outputTargets.find(o => o.type === 'dist') as d.OutputTargetDist;
     expect(distOutput.resourcesUrl).toBeUndefined();
 
     await setupFs(c,
       '<script src="http://cdn.stenciljs.com/dist/myapp.js"></script>',
       `{
-        "main": "dist/myapp.js",
-        "collection\": "dist/collection/collection-manifest.json",
+        "module": "dist/esm/es5/index.js",
+        "main": "dist/index.js",
+        "collection": "dist/collection/collection-manifest.json",
         "types": "dist/types/components.d.ts"
       }`);
 
     const r = await c.build();
     expect(r.diagnostics).toEqual([]);
 
-    const { win, doc } = mockDom('/User/testing/www/index.html');
+    const url = 'http://emmitts-garage.com/?core=esm';
+    const html = c.fs.readFileSync(path.join(root, 'User', 'testing', 'www', 'index.html'));
+    const { win, doc } = mockDom(url, html);
 
-    const loaderContent = await c.fs.readFile('/User/testing/dist/myapp.js');
+    const loaderContent = await c.fs.readFile(path.join(root, 'User', 'testing', 'dist', 'myapp.js'));
     execScript(win, doc, loaderContent);
 
     const coreScriptElm = doc.head.querySelector('script[data-resources-url][data-namespace="myapp"]');
@@ -49,7 +54,7 @@ describe('dist loader/core resourcesUrl', () => {
     expect(resourcesUrl).toBe('http://cdn.stenciljs.com/dist/myapp/');
     expect(coreScriptSrc).toBe('http://cdn.stenciljs.com/dist/myapp/myapp.core.js');
 
-    const coreContent = await c.fs.readFile('/User/testing/dist/myapp/myapp.core.js');
+    const coreContent = await c.fs.readFile(path.join(root, 'User', 'testing', 'dist', 'myapp', 'myapp.core.js'));
     execScript(win, doc, coreContent);
 
     expect(win.customElements.get('cmp-a')).toBeDefined();
@@ -57,9 +62,10 @@ describe('dist loader/core resourcesUrl', () => {
 
 
   it('custom buildDir config', async () => {
+    jest.setTimeout(15000);
     config = new TestingConfig();
     config.buildAppCore = true;
-    config.rootDir = '/User/testing/';
+    config.rootDir = path.join(root, 'User', 'testing', '/');
     config.namespace = 'MyApp';
     config.outputTargets = [
       {
@@ -69,13 +75,14 @@ describe('dist loader/core resourcesUrl', () => {
     ];
 
     c = new TestingCompiler(config);
-    const distOutput: d.OutputTargetDist = config.outputTargets.find(o => o.type === 'dist');
+    const distOutput = config.outputTargets.find(o => o.type === 'dist') as d.OutputTargetDist;
     expect(distOutput.resourcesUrl).toBeUndefined();
 
     await setupFs(c,
       '<script src="http://cdn.stenciljs.com/dist/some-build/myapp.js"></script>',
       `{
-        "main": "dist/some-build/myapp.js",
+        "module": "dist/some-build/esm/es5/index.js",
+        "main": "dist/some-build/index.js",
         "collection\": "dist/collection/collection-manifest.json",
         "types": "dist/types/components.d.ts"
       }`);
@@ -83,9 +90,11 @@ describe('dist loader/core resourcesUrl', () => {
     const r = await c.build();
     expect(r.diagnostics).toEqual([]);
 
-    const { win, doc } = mockDom('/User/testing/www/index.html');
+    const url = 'http://emmitts-garage.com/?core=esm';
+    const html = c.fs.readFileSync(path.join(root, 'User', 'testing', 'www', 'index.html'));
+    const { win, doc } = mockDom(url, html);
 
-    const loaderContent = await c.fs.readFile('/User/testing/dist/some-build/myapp.js');
+    const loaderContent = await c.fs.readFile(path.join(root, 'User', 'testing', 'dist', 'some-build', 'myapp.js'));
     execScript(win, doc, loaderContent);
 
     const coreScriptElm = doc.head.querySelector('script[data-resources-url][data-namespace="myapp"]');
@@ -95,52 +104,11 @@ describe('dist loader/core resourcesUrl', () => {
     expect(resourcesUrl).toBe('http://cdn.stenciljs.com/dist/some-build/myapp/');
     expect(coreScriptSrc).toBe('http://cdn.stenciljs.com/dist/some-build/myapp/myapp.core.js');
 
-    const coreContent = await c.fs.readFile('/User/testing/dist/some-build/myapp/myapp.core.js');
+    const coreContent = await c.fs.readFile(path.join(root, 'User', 'testing', 'dist', 'some-build', 'myapp', 'myapp.core.js'));
     execScript(win, doc, coreContent);
 
     expect(win.customElements.get('cmp-a')).toBeDefined();
   });
-
-
-  function mockDom(htmlFilePath: string): { win: Window, doc: HTMLDocument } {
-    const jsdom = require('jsdom');
-
-    const html = c.fs.readFileSync(htmlFilePath);
-
-    const dom = new jsdom.JSDOM(html, {
-      url: 'http://emmitts-garage.com/?core=esm'
-    });
-
-    const win = dom.window;
-    const doc = win.document;
-
-    win.fetch = {};
-
-    win.CSS = {
-      supports: () => true
-    };
-
-    win.requestAnimationFrame = (cb: Function) => {
-      setTimeout(cb);
-    };
-
-    win.performance = {
-      now: () => Date.now()
-    };
-
-    win.CustomEvent = class {};
-
-    win.customElements = {
-      define: (tag: string) => $definedTag[tag] = true,
-      get: (tag: string) => $definedTag[tag]
-    };
-
-    const $definedTag = {};
-
-    win.dispatchEvent = () => true;
-
-    return { win, doc };
-  }
 
 
   function execScript(win: any, doc: any, jsContent: string) {
@@ -151,10 +119,10 @@ describe('dist loader/core resourcesUrl', () => {
 
 
   async function setupFs(c: TestingCompiler, loaderSrc: string, packageJson: string) {
-    await c.fs.writeFile('/User/testing/src/components/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA {}`);
+    await c.fs.writeFile(path.join(root, 'User', 'testing', 'src', 'components', 'cmp-a.tsx'), `@Component({ tag: 'cmp-a' }) export class CmpA {}`);
 
     await c.fs.writeFile(
-      '/User/testing/www/index.html', `
+      path.join(root, 'User', 'testing', 'www', 'index.html'), `
         <!DOCTYPE html>
         <html>
         <head>
@@ -177,7 +145,7 @@ describe('dist loader/core resourcesUrl', () => {
     );
 
     if (packageJson) {
-      await c.fs.writeFile('/User/testing/package.json', packageJson);
+      await c.fs.writeFile(path.join(root, 'User', 'testing', 'package.json'), packageJson);
     }
 
     await c.fs.commit();

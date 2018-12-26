@@ -1,25 +1,50 @@
-import { Config, EntryModule } from '../../../declarations';
+import * as d from '../../../declarations';
 import { dashToPascalCase } from '../../../util/helpers';
+import { ENTRY_KEY_PREFIX } from '../../entries/entry-modules';
 import { normalizePath } from '../../util';
 
-export default function bundleEntryFile(config: Config, entryModules: EntryModule[]) {
+
+export default function bundleEntryFile(config: d.Config, buildCtx: d.BuildCtx, entryModules: d.EntryModule[]) {
 
   return {
     name: 'bundleEntryFilePlugin',
 
     resolveId(importee: string) {
-      const bundle = entryModules.find(b => b.entryKey === importee);
-      if (bundle) {
-        return bundle.entryKey;
+      if (/\0/.test(importee)) {
+        // ignore IDs with null character, these belong to other plugins
+        return null;
+      }
+
+      if (!buildCtx.isActiveBuild) {
+        return `_not_active_build.js`;
+      }
+
+      if (importee.startsWith(ENTRY_KEY_PREFIX)) {
+        const bundle = entryModules.find(b => b.entryKey === importee);
+        if (bundle) {
+          return bundle.entryKey;
+        }
+
+        buildCtx.debug(`bundleEntryFilePlugin resolveId, unable to find entry key: ${importee}`);
+        buildCtx.debug(`entryModules entryKeys: ${entryModules.map(em => em.entryKey).join(', ')}`);
       }
 
       return null;
     },
 
     load(id: string) {
-      const bundle = entryModules.find(b => b.entryKey === id);
-      if (bundle) {
-        return createEntryPointString(config, bundle);
+      if (!buildCtx.isActiveBuild) {
+        return `/* build aborted */`;
+      }
+
+      if (id.startsWith(ENTRY_KEY_PREFIX)) {
+        const bundle = entryModules.find(b => b.entryKey === id);
+        if (bundle) {
+          return createEntryPointString(config, bundle);
+        }
+
+        buildCtx.debug(`bundleEntryFilePlugin load, unable to find entry key: ${id}`);
+        buildCtx.debug(`entryModules entryKeys: ${entryModules.map(em => em.entryKey).join(', ')}`);
       }
 
       return null;
@@ -27,7 +52,8 @@ export default function bundleEntryFile(config: Config, entryModules: EntryModul
   };
 }
 
-export function createEntryPointString(config: Config, entryModule: EntryModule): string {
+
+export function createEntryPointString(config: d.Config, entryModule: d.EntryModule): string {
   const path = config.sys.path;
 
   return entryModule.moduleFiles

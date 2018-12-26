@@ -1,17 +1,18 @@
 import * as d from '../../declarations';
-import { mockElement, mockPlatform } from '../../testing/mocks';
 import { h } from '../../renderer/vdom/h';
+import { mockPlatform } from '../../testing/mocks';
+import { PROP_TYPE } from '../../util/constants';
 import { render } from '../render';
 
 
 describe('instance render', () => {
 
   let plt: d.PlatformApi;
-  let elm: d.HostElement;
+  let hostElm: d.HostElement;
 
   beforeEach(() => {
     plt = mockPlatform();
-    elm = mockElement('ion-tag') as d.HostElement;
+    hostElm = plt.domApi.$createElement('ion-tag') as d.HostElement;
   });
 
 
@@ -30,12 +31,24 @@ describe('instance render', () => {
       }
     }
 
-    elm.setAttribute('checked', '');
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        checked: {
+          propType: PROP_TYPE.Boolean,
+          attribName: 'checked',
+          reflectToAttrib: true
+        }
+      }
+    });
+
+    hostElm.setAttribute('checked', '');
 
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('checked')).toBe(null);
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.getAttribute('checked')).toBe(null);
   });
 
   it('should reflect standardized boolean attribute, truthy w/ no value, no render()', () => {
@@ -53,10 +66,22 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        checked: {
+          propType: PROP_TYPE.Boolean,
+          attribName: 'checked',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('checked')).toBe('');
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.getAttribute('checked')).toBe('');
   });
 
   it('should reflect non-standardized boolean attribute, falsy w/ value', () => {
@@ -74,10 +99,22 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        rflBool: {
+          propType: PROP_TYPE.Boolean,
+          attribName: 'my-attr-name',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('my-attr-name')).toBe('false');
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.hasAttribute('my-attr-name')).toBe(false);
   });
 
   it('should reflect non-standardized boolean attribute, truthy w/ value', () => {
@@ -95,10 +132,22 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        rflBool: {
+          propType: PROP_TYPE.Boolean,
+          attribName: 'my-attr-name',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('my-attr-name')).toBe('true');
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.getAttribute('my-attr-name')).toBe('');
   });
 
   it('should reflect boolean property value to attribute, but not a standardized Boolean attribute, no render()', () => {
@@ -116,10 +165,22 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        rflBool: {
+          propType: PROP_TYPE.Boolean,
+          attribName: 'my-attr-name',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('my-attr-name')).toBe('true');
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.getAttribute('my-attr-name')).toBe('');
   });
 
   it('should reflect number property value to attribute, w/ render()', () => {
@@ -141,10 +202,22 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        rflNum: {
+          propType: PROP_TYPE.Number,
+          attribName: 'my-attr-name',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
-    expect(elm.getAttribute('my-attr-name')).toBe('88');
+    const vnode = plt.vnodeMap.get(hostElm);
+    expect(hostElm.getAttribute('my-attr-name')).toBe('88');
   });
 
   it('should reflect string property value to attribute, w/ hostData()', () => {
@@ -168,13 +241,25 @@ describe('instance render', () => {
       }
     }
 
+    plt.defineComponent({
+      tagNameMeta: 'ion-tag',
+      componentConstructor: MyComponent,
+      membersMeta: {
+        rflStr: {
+          propType: PROP_TYPE.String,
+          attribName: 'my-attr-name',
+          reflectToAttrib: true
+        }
+      }
+    });
+
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
+    const vnode = plt.vnodeMap.get(hostElm);
     expect(vnode.ishost).toBe(true);
 
-    expect(elm.getAttribute('my-attr-name')).toBe('str');
-    expect(elm.getAttribute('host-data')).toBe('hello');
+    expect(hostElm.getAttribute('my-attr-name')).toBe('str');
+    expect(hostElm.getAttribute('host-data')).toBe('hello');
   });
 
   it('should create a vnode with no children when there is a render() but it returned null', () => {
@@ -186,7 +271,7 @@ describe('instance render', () => {
 
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
+    const vnode = plt.vnodeMap.get(hostElm);
     expect(vnode).toBeDefined();
     expect(vnode.vchildren[0].vtext).toBe('');
   });
@@ -200,7 +285,7 @@ describe('instance render', () => {
 
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
+    const vnode = plt.vnodeMap.get(hostElm);
     expect(vnode).toBeDefined();
     expect(vnode.vchildren[0].vtag).toBe('div');
     expect(vnode.vchildren[0].vchildren[0].vtext).toBe('text');
@@ -219,7 +304,7 @@ describe('instance render', () => {
 
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
+    const vnode = plt.vnodeMap.get(hostElm);
     expect(vnode).toBeDefined();
     expect(vnode.vchildren[0].vtext).toBe('');
     expect(vnode.vchildren[1].vtag).toBe('div');
@@ -232,7 +317,7 @@ describe('instance render', () => {
 
     doRender(MyComponent);
 
-    const vnode = plt.vnodeMap.get(elm);
+    const vnode = plt.vnodeMap.get(hostElm);
     expect(vnode).toBeUndefined();
   });
 
@@ -261,7 +346,7 @@ describe('instance render', () => {
       }
 
       doRender(MyComponent);
-      expect(elm).toMatchClasses(['a', 'clAss', 'My-class_']);
+      expect(hostElm).toHaveClasses(['a', 'clAss', 'My-class_']);
     });
 
     it('should set attributes', () => {
@@ -282,14 +367,13 @@ describe('instance render', () => {
 
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses(['a', 'b', 'c', 'my-class']);
-      expect(elm).toMatchAttributes({
+      expect(hostElm).toHaveClasses(['a', 'b', 'c', 'my-class']);
+      expect(hostElm).toEqualAttributes({
         side: '  left   top ',
         empty: '',
         class: 'a b c my-class',
         number: '12',
-        appear: 'true',
-        'no-appear': 'false'
+        appear: '',
       });
     });
 
@@ -312,8 +396,8 @@ describe('instance render', () => {
 
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses(['a', 'hola']);
-      expect(elm).toMatchAttributes({
+      expect(hostElm).toHaveClasses(['a', 'hola']);
+      expect(hostElm).toEqualAttributes({
         class: 'a hola',
         number: '12',
         appear: 'true'
@@ -331,7 +415,7 @@ describe('instance render', () => {
 
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses(['my-component']);
+      expect(hostElm).toHaveClasses(['my-component']);
     });
 
     it('should apply theme with mode', () => {
@@ -347,7 +431,7 @@ describe('instance render', () => {
       spyOn(plt, 'attachStyles');
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses(['my-component', 'my-component-ios']);
+      expect(hostElm).toHaveClasses(['my-component', 'my-component-ios']);
       expect(plt.attachStyles).toHaveBeenCalled();
     });
 
@@ -364,7 +448,7 @@ describe('instance render', () => {
 
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses([
+      expect(hostElm).toHaveClasses([
         'my-component',
         'my-component-md',
         'my-component-main',
@@ -400,7 +484,7 @@ describe('instance render', () => {
 
       doRender(MyComponent);
 
-      expect(elm).toMatchClasses([
+      expect(hostElm).toHaveClasses([
         'a',
         'hola',
         'my-component',
@@ -409,7 +493,7 @@ describe('instance render', () => {
         'my-component-md-main'
       ]);
 
-      expect(elm).toMatchAttributes({
+      expect(hostElm).toEqualAttributes({
         'class': 'a hola my-component my-component-md my-component-main my-component-md-main',
         'number': '12',
         'appear': 'true',
@@ -420,11 +504,11 @@ describe('instance render', () => {
 
   function doRender(cmpConstructor: any) {
     const instance = new cmpConstructor();
-    plt.instanceMap.set(elm, instance);
+    plt.instanceMap.set(hostElm, instance);
     const cmpMeta: d.ComponentMeta = {
       componentConstructor: cmpConstructor
     };
-    render(plt, cmpMeta, elm, instance, false);
+    render(plt, cmpMeta, hostElm, instance);
     return instance;
   }
 

@@ -8,7 +8,7 @@ describe('listen decorator', () => {
   it('simple decorator', () => {
     let response;
     const sourceFilePath = path.resolve(__dirname, './fixtures/listen-simple');
-    const metadata = gatherMetadata(sourceFilePath, (checker, classNode) => {
+    gatherMetadata(sourceFilePath, (checker, classNode) => {
       response = getListenDecoratorMeta(checker, classNode);
     });
 
@@ -22,6 +22,7 @@ describe('listen decorator', () => {
         jsdoc: {
           documentation: 'Create listen for something',
           name: 'viewDidLoad',
+          tags: [],
           type: '(ev: any) => void',
         },
       },
@@ -34,6 +35,7 @@ describe('listen decorator', () => {
         jsdoc: {
           documentation: '',
           name: 'method',
+          tags: [],
           type: '() => void',
         },
       },
@@ -46,6 +48,7 @@ describe('listen decorator', () => {
         jsdoc: {
           documentation: '',
           name: 'method',
+          tags: [],
           type: '() => void',
         },
       },
@@ -58,6 +61,7 @@ describe('listen decorator', () => {
         jsdoc: {
           documentation: '',
           name: 'method',
+          tags: [],
           type: '() => void',
         },
       }

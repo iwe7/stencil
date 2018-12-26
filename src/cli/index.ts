@@ -1,40 +1,36 @@
-import { Compiler as CompilerType } from '../compiler';
-import { Config, Logger, StencilSystem } from '../declarations';
-import { getConfigFilePath, hasError } from './cli-utils';
-import { help } from './task-help';
-import { initApp } from './task-init';
+import * as d from '../declarations';
+import { getConfigFilePath } from './cli-utils';
 import { parseFlags } from './parse-flags';
+import { runTask } from './run-task';
+import { shouldIgnoreError } from '../compiler/util';
+import exit from 'exit';
 
 
-export async function run(process: NodeJS.Process, sys: StencilSystem, logger: Logger) {
-  process.on('unhandledRejection', (r: any) => logger.error(r));
+export async function run(process: NodeJS.Process, sys: d.StencilSystem, logger: d.Logger) {
+  process.on(`unhandledRejection`, (r: any) => {
+    if (!shouldIgnoreError(r)) {
+      logger.error(`unhandledRejection`, r);
+    }
+  });
+
+  process.title = `Stencil`;
 
   const flags = parseFlags(process);
 
-  if (flags.help || flags.task === 'help') {
-    help(process, logger);
-    process.exit(0);
-  }
-
-  if (flags.task === 'init') {
-    initApp(process, sys, logger);
-    process.exit(0);
-  }
-
-  if (flags.version) {
-    console.log(sys.compiler.version);
-    process.exit(0);
-  }
-
   // load the config file
-  let config: Config;
+  let config: d.Config;
   try {
     const configPath = getConfigFilePath(process, sys, flags.config);
-    config = sys.loadConfigFile(configPath);
+
+    // if --config is provided we need to check if it exists
+    if (flags.config && !sys.fs.existsSync(configPath)) {
+      throw new Error(`Stencil configuration file cannot be found at: "${flags.config}"`);
+    }
+    config = sys.loadConfigFile(configPath, process);
 
   } catch (e) {
     logger.error(e);
-    process.exit(1);
+    exit(1);
   }
 
   try {
@@ -55,41 +51,14 @@ export async function run(process: NodeJS.Process, sys: StencilSystem, logger: L
 
     config.flags = flags;
 
-    const { Compiler } = require('../compiler/index.js');
-
-    const compiler: CompilerType = new Compiler(config);
-    if (!compiler.isValid) {
-      process.exit(1);
-    }
-
     process.title = `Stencil: ${config.namespace}`;
 
-    switch (flags.task) {
-      case 'build':
-        const results = await compiler.build();
-        if (!config.watch && hasError(results && results.diagnostics)) {
-          process.exit(1);
-        }
-
-        if (config.watch) {
-          process.once('SIGINT', () => {
-            process.exit(0);
-          });
-        }
-        break;
-
-      case 'docs':
-        await compiler.docs();
-        break;
-
-      default:
-        config.logger.error(`Invalid stencil command, please see the options below:`);
-        help(process, logger);
-        process.exit(1);
-    }
+    await runTask(process, config, flags);
 
   } catch (e) {
-    config.logger.error('uncaught cli error', e);
-    process.exit(1);
+    if (!shouldIgnoreError(e)) {
+      config.logger.error(`uncaught cli error: ${e}`);
+      exit(1);
+    }
   }
 }

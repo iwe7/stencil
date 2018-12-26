@@ -3,7 +3,8 @@ import { createDomApi } from '../renderer/dom-api';
 import { createQueueServer } from './queue-server';
 import { createRendererPatch } from '../renderer/vdom/patch';
 import { DEFAULT_STYLE_MODE, ENCAPSULATION, RUNTIME_ERROR } from '../util/constants';
-import { fillCmpMetaFromConstructor } from './cmp-meta';
+import { enableEventListener } from '../core/listeners';
+import { fillCmpMetaFromConstructor } from '../util/cmp-meta';
 import { getAppBuildDir } from '../compiler/app/app-file-naming';
 import { h } from '../renderer/vdom/h';
 import { initCoreComponentOnReady } from '../core/component-on-ready';
@@ -11,6 +12,7 @@ import { noop } from '../util/helpers';
 import { patchDomApi } from './dom-api-server';
 import { proxyController } from '../core/proxy-controller';
 import { queueUpdate } from '../core/update';
+import { serverAttachStyles, serverInitStyle } from './server-styles';
 import { toDashCase } from '../util/helpers';
 
 
@@ -25,11 +27,11 @@ export function createPlatformServer(
   isPrerender: boolean,
   compilerCtx?: d.CompilerCtx
 ): d.PlatformApi {
-  const loadedBundles: {[bundleId: string]: any} = {};
-  const styles: string[] = [];
+  const loadedBundles: {[bundleId: string]:  d.CjsExports} = {};
+  const appliedStyleIds = new Set<string>();
   const controllerComponents: {[tag: string]: d.HostElement} = {};
-
   const domApi = createDomApi(App, win, doc);
+  const perf = { mark: noop, measure: noop } as any;
 
   // init build context
   compilerCtx = compilerCtx || {};
@@ -39,8 +41,7 @@ export function createPlatformServer(
 
   // initialize Core global object
   const Context: d.CoreContext = {};
-  Context.addListener = noop;
-  Context.enableListener = noop;
+  Context.enableListener = (instance, eventName, enabled, attachTo, passive) => enableEventListener(plt, instance, eventName, enabled, attachTo, passive);
   Context.emit = (elm: Element, eventName: string, data: d.EventEmitterData) => domApi.$dispatchEvent(elm, Context.eventNameFn ? Context.eventNameFn(eventName) : eventName, data);
   Context.isClient = false;
   Context.isServer = true;
@@ -83,9 +84,11 @@ export function createPlatformServer(
     getContextItem,
     isDefinedComponent,
     onError,
+    activeRender: false,
+    isAppLoaded: false,
     nextId: () => config.namespace + (ids++),
     propConnect,
-    queue: createQueueServer(),
+    queue: (Context.queue = createQueueServer()),
     requestBundle: requestBundle,
     tmpDisconnected: false,
 
@@ -93,7 +96,8 @@ export function createPlatformServer(
     componentAppliedStyles: new WeakMap(),
     hasConnectedMap: new WeakMap(),
     hasListenersMap: new WeakMap(),
-    hasLoadedMap: new WeakMap(),
+    isCmpLoaded: new WeakMap(),
+    isCmpReady: new WeakMap(),
     hostElementMap: new WeakMap(),
     hostSnapshotMap: new WeakMap(),
     instanceMap: new WeakMap(),
@@ -102,11 +106,19 @@ export function createPlatformServer(
     onReadyCallbacksMap: new WeakMap(),
     queuedEvents: new WeakMap(),
     vnodeMap: new WeakMap(),
-    valuesMap: new WeakMap()
+    valuesMap: new WeakMap(),
+
+    processingCmp: new Set(),
+    onAppReadyCallbacks: []
   };
 
+  // create a method that returns a promise
+  // which gets resolved when the app's queue is empty
+  // and app is idle, works for both initial load and updates
+  App.onReady = () => new Promise(resolve => plt.queue.write(() => plt.processingCmp.size ? plt.onAppReadyCallbacks.push(resolve) : resolve()));
+
   // patch dom api like createElement()
-  patchDomApi(config, plt, domApi);
+  patchDomApi(config, plt, domApi, perf);
 
   // create the renderer which will be used to patch the vdom
   plt.render = createRendererPatch(plt, domApi);
@@ -116,31 +128,49 @@ export function createPlatformServer(
 
   // setup the root node of all things
   // which is the mighty <html> tag
-  const rootElm = domApi.$documentElement as d.HostElement;
+  const rootElm = domApi.$doc.documentElement as d.HostElement;
   rootElm['s-ld'] = [];
   rootElm['s-rn'] = true;
 
   rootElm['s-init'] = function appLoadedCallback() {
-    plt.hasLoadedMap.set(rootElm, true);
+    plt.isCmpReady.set(rootElm, true);
     appLoaded();
   };
 
   function appLoaded(failureDiagnostic?: d.Diagnostic) {
-    if (plt.hasLoadedMap.has(rootElm) || failureDiagnostic) {
+    if (plt.isCmpReady.has(rootElm) || failureDiagnostic) {
       // the root node has loaded
-      // and there are no css files still loading
-      plt.onAppLoad && plt.onAppLoad(rootElm, styles, failureDiagnostic);
+      plt.onAppLoad && plt.onAppLoad(rootElm, failureDiagnostic);
     }
   }
 
   function getComponentMeta(elm: Element) {
     // registry tags are always lower-case
-    return cmpRegistry[elm.tagName.toLowerCase()];
+    return cmpRegistry[elm.nodeName.toLowerCase()];
   }
 
   function defineComponent(cmpMeta: d.ComponentMeta) {
     // default mode and color props
     cmpRegistry[cmpMeta.tagNameMeta] = cmpMeta;
+  }
+
+
+  function setLoadedBundle(bundleId: string, value: d.CjsExports) {
+    loadedBundles[bundleId] = value;
+  }
+
+  function getLoadedBundle(bundleId: string) {
+    if (bundleId == null) {
+      return null;
+    }
+    return loadedBundles[bundleId.replace(/^\.\//, '')];
+  }
+
+  function isLoadedBundle(id: string) {
+    if (id === 'exports' || id === 'require') {
+      return true;
+    }
+    return !!getLoadedBundle(id);
   }
 
   /**
@@ -153,7 +183,11 @@ export function createPlatformServer(
     const bundleExports: d.CjsExports = {};
 
     try {
-      callback(bundleExports, ...deps.map(d => loadedBundles[d]));
+      callback.apply(null, deps.map(d => {
+        if (d === 'exports') return bundleExports;
+        if (d === 'require') return userRequire;
+        return getLoadedBundle(d);
+      }));
     } catch (e) {
       onError(e, RUNTIME_ERROR.LoadBundleError, null, true);
     }
@@ -163,24 +197,36 @@ export function createPlatformServer(
       return;
     }
 
-    loadedBundles[name] = bundleExports;
+    setLoadedBundle(name, bundleExports);
 
     // If name contains chunk then this callback was associated with a dependent bundle loading
     // let's add a reference to the constructors on each components metadata
     // each key in moduleImports is a PascalCased tag name
-    if (!name.startsWith('./chunk')) {
+    if (!name.startsWith('chunk')) {
       Object.keys(bundleExports).forEach(pascalCasedTagName => {
-        const cmpMeta = cmpRegistry[toDashCase(pascalCasedTagName)];
-        if (cmpMeta) {
-          // connect the component's constructor to its metadata
-          const componentConstructor = bundleExports[pascalCasedTagName];
+        const normalizedTagName = pascalCasedTagName.replace(/-/g, '').toLowerCase();
 
-          if (!cmpMeta.componentConstructor) {
-            fillCmpMetaFromConstructor(componentConstructor, cmpMeta);
-          }
+        const registryTags = Object.keys(cmpRegistry);
+        for (let i = 0; i < registryTags.length; i++) {
+          const normalizedRegistryTag = registryTags[i].replace(/-/g, '').toLowerCase();
 
-          if (componentConstructor.style) {
-            styles.push(componentConstructor.style);
+          if (normalizedRegistryTag === normalizedTagName) {
+            const cmpMeta = cmpRegistry[toDashCase(pascalCasedTagName)];
+            if (cmpMeta) {
+              // connect the component's constructor to its metadata
+              const componentConstructor = bundleExports[pascalCasedTagName];
+
+              if (!cmpMeta.componentConstructor) {
+                fillCmpMetaFromConstructor(componentConstructor, cmpMeta);
+
+                if (!cmpMeta.componentConstructor) {
+                  cmpMeta.componentConstructor = componentConstructor;
+                }
+              }
+
+              serverInitStyle(domApi, appliedStyleIds, componentConstructor);
+            }
+            break;
           }
         }
       });
@@ -190,30 +236,35 @@ export function createPlatformServer(
   /**
    * This function is called anytime a JS file is loaded
    */
-  App.loadBundle = function loadBundle(bundleId: string, [, ...dependentsList]: string[], importer: Function) {
+  function loadBundle(bundleId: string, [...dependentsList]: string[], importer: Function) {
 
-    const missingDependents = dependentsList.filter(d => !loadedBundles[d]);
+    const missingDependents = dependentsList.filter(d => !isLoadedBundle(d));
     missingDependents.forEach(d => {
       const fileName = d.replace('.js', '.es5.js');
       loadFile(fileName);
     });
 
     execBundleCallback(bundleId, dependentsList, importer);
-  };
+  }
+  App.loadBundle = loadBundle;
 
 
   function isDefinedComponent(elm: Element) {
     return !!(cmpRegistry[elm.tagName.toLowerCase()]);
   }
 
+  function userRequire(ids: string[], resolve: Function) {
+    loadBundle(undefined, ids, resolve);
+  }
 
-  plt.attachStyles = function attachStyles(_domApi, _cmpMeta, _modeName, _elm) {/**/};
+
+  plt.attachStyles = (plt, _domApi, cmpMeta, hostElm) => {
+    serverAttachStyles(plt, appliedStyleIds, cmpMeta, hostElm);
+  };
 
 
   // This is executed by the component's connected callback.
-  function requestBundle(cmpMeta: d.ComponentMeta, elm: d.HostElement, hostSnapshot: d.HostSnapshot) {
-    // remember a "snapshot" of this host element's current attributes/child nodes/slots/etc
-    plt.hostSnapshotMap.set(elm, hostSnapshot);
+  function requestBundle(cmpMeta: d.ComponentMeta, elm: d.HostElement) {
 
     // set the "mode" property
     if (!elm.mode) {
@@ -225,16 +276,17 @@ export function createPlatformServer(
 
     // It is possible the data was loaded from an outside source like tests
     if (cmpRegistry[cmpMeta.tagNameMeta].componentConstructor) {
-      queueUpdate(plt, elm);
+      serverInitStyle(domApi, appliedStyleIds, cmpRegistry[cmpMeta.tagNameMeta].componentConstructor);
+      queueUpdate(plt, elm, perf);
 
     } else {
       const bundleId = (typeof cmpMeta.bundleIds === 'string') ?
         cmpMeta.bundleIds :
-        cmpMeta.bundleIds[elm.mode];
+        (cmpMeta.bundleIds as d.BundleIds)[elm.mode];
 
-      if (loadedBundles[bundleId]) {
+      if (isLoadedBundle(bundleId)) {
         // sweet, we've already loaded this bundle
-        queueUpdate(plt, elm);
+        queueUpdate(plt, elm, perf);
 
       } else {
         const fileName = getComponentBundleFilename(cmpMeta, elm.mode);
@@ -245,6 +297,7 @@ export function createPlatformServer(
 
   function loadFile(fileName: string) {
     const jsFilePath = config.sys.path.join(appBuildDir, fileName);
+
     const jsCode = compilerCtx.fs.readFileSync(jsFilePath);
     config.sys.vm.runInContext(jsCode, win);
   }
@@ -321,14 +374,14 @@ export function createPlatformServer(
 export function getComponentBundleFilename(cmpMeta: d.ComponentMeta, modeName: string) {
   let bundleId: string = (typeof cmpMeta.bundleIds === 'string') ?
     cmpMeta.bundleIds :
-    (cmpMeta.bundleIds[modeName] || cmpMeta.bundleIds[DEFAULT_STYLE_MODE]);
+    ((cmpMeta.bundleIds as d.BundleIds)[modeName] || (cmpMeta.bundleIds as d.BundleIds)[DEFAULT_STYLE_MODE]);
 
-  if (cmpMeta.encapsulation === ENCAPSULATION.ScopedCss || cmpMeta.encapsulation === ENCAPSULATION.ShadowDom) {
+  if (cmpMeta.encapsulationMeta === ENCAPSULATION.ScopedCss || cmpMeta.encapsulationMeta === ENCAPSULATION.ShadowDom) {
     bundleId += '.sc';
   }
 
   // server-side always uses es5 and jsonp callback modules
-  bundleId += '.es5.js';
+  bundleId += '.es5.entry.js';
 
   return bundleId;
 }

@@ -7,8 +7,12 @@ export default function localResolution(config: Config, compilerCtx: CompilerCtx
     name: 'localResolution',
 
     async resolveId(importee: string, importer: string) {
+      if (/\0/.test(importee)) {
+        // ignore IDs with null character, these belong to other plugins
+        return null;
+      }
+
       importee = normalizePath(importee);
-      importer = normalizePath(importer);
 
       if (importee.indexOf('./') === -1) {
         return null;
@@ -17,6 +21,7 @@ export default function localResolution(config: Config, compilerCtx: CompilerCtx
       if (!importer) {
         return null;
       }
+      importer = normalizePath(importer);
 
       if (importee.endsWith('.js')) {
         return null;

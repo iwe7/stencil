@@ -4,7 +4,7 @@ import { HOST_CONFIG_FILENAME } from '../prerender/host-config';
 
 
 export function validateServiceWorker(config: d.Config, outputTarget: d.OutputTargetWww) {
-  if (config.devMode) {
+  if (config.devMode && !config.flags.serviceWorker) {
     outputTarget.serviceWorker = null;
     return;
   }
@@ -76,5 +76,5 @@ function addGlobIgnores(config: d.Config, globIgnores: string[]) {
 }
 
 
-const DEFAULT_GLOB_PATTERNS = '**/*.{js,css,json,html,ico,png,svg}';
+const DEFAULT_GLOB_PATTERNS = '**/*.{js,css,json,html}';
 const DEFAULT_FILENAME = 'sw.js';

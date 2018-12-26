@@ -11,7 +11,7 @@ describe(`in-memory-fs, getCommitInstructions`, () => {
   let d: d.FsItems;
 
   beforeEach(() => {
-    d = {};
+    d = new Map();
   });
 
   it(`dirsToDelete, sort longest to shortest, windows`, () => {
@@ -19,18 +19,18 @@ describe(`in-memory-fs, getCommitInstructions`, () => {
     const dir1 = normalizePath(`C:\\dir1\\`);
     const dir2 = normalizePath(`C:\\dir1\\dir2\\`);
     const dir3 = normalizePath(`C:\\dir1\\dir2\\dir3\\`);
-    d[root] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir2] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir3] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir1] = { queueDeleteFromDisk: true, isDirectory: true };
+    d.set(root, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir2, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir3, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir1, { queueDeleteFromDisk: true, isDirectory: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([]);
     expect(i.dirsToDelete).toEqual([`C:/dir1/dir2/dir3`, `C:/dir1/dir2`, `C:/dir1`]);
     expect(i.dirsToEnsure).toEqual([]);
-    expect(d[`C:/dir1`].queueDeleteFromDisk).toBe(false);
-    expect(d[`C:/dir1/dir2`].queueDeleteFromDisk).toBe(false);
-    expect(d[`C:/dir1/dir2/dir3`].queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1/dir2`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1/dir2/dir3`).queueDeleteFromDisk).toBe(false);
   });
 
   it(`dirsToDelete, sort longest to shortest, unix`, () => {
@@ -38,111 +38,111 @@ describe(`in-memory-fs, getCommitInstructions`, () => {
     const dir1 = normalizePath(`/dir1`);
     const dir2 = normalizePath(`/dir1/dir2/`);
     const dir3 = normalizePath(`/dir1/dir2/dir3/`);
-    d[root] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir2] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir1] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[dir3] = { queueDeleteFromDisk: true, isDirectory: true };
+    d.set(root, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir2, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir1, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(dir3, { queueDeleteFromDisk: true, isDirectory: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([]);
     expect(i.dirsToDelete).toEqual([`/dir1/dir2/dir3`, `/dir1/dir2`, `/dir1`]);
     expect(i.dirsToEnsure).toEqual([]);
-    expect(d[`/dir1`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1/dir2`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1/dir2/dir3`].queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1/dir2`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1/dir2/dir3`).queueDeleteFromDisk).toBe(false);
   });
 
   it(`ensure dirs, sort shortest to longest, windows`, () => {
     const file2 = normalizePath(`C:\\dir1\\dir2\\dir3\\file2.js`);
     const dir1 = normalizePath(`C:\\dir1\\`);
     const file1 = normalizePath(`C:\\dir1\\dir2\\file1.js`);
-    d[file2] = { queueWriteToDisk: true, isFile: true };
-    d[dir1] = { queueWriteToDisk: true, isDirectory: true };
-    d[file1] = { queueWriteToDisk: true, isFile: true };
+    d.set(file2, { queueWriteToDisk: true, isFile: true });
+    d.set(dir1, { queueWriteToDisk: true, isDirectory: true });
+    d.set(file1, { queueWriteToDisk: true, isFile: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([`C:/dir1/dir2/dir3/file2.js`, `C:/dir1/dir2/file1.js`]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`C:/dir1`, `C:/dir1/dir2`, `C:/dir1/dir2/dir3`]);
-    expect(d[`C:/dir1`].queueDeleteFromDisk).toBe(false);
-    expect(d[`C:/dir1/dir2/file1.js`].queueDeleteFromDisk).toBe(false);
-    expect(d[`C:/dir1/dir2/dir3/file2.js`].queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1/dir2/file1.js`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`C:/dir1/dir2/dir3/file2.js`).queueDeleteFromDisk).toBe(false);
   });
 
   it(`ensure dirs, sort shortest to longest`, () => {
-    d[`/`] = { queueWriteToDisk: true, isDirectory: true };
-    d[`/dir1/dir2/dir3/file2.js`] = { queueWriteToDisk: true, isFile: true };
-    d[`/dir1`] = { queueWriteToDisk: true, isDirectory: true };
-    d[`/dir1/dir2/file1.js`] = { queueWriteToDisk: true, isFile: true };
+    d.set(`/`, { queueWriteToDisk: true, isDirectory: true });
+    d.set(`/dir1/dir2/dir3/file2.js`, { queueWriteToDisk: true, isFile: true });
+    d.set(`/dir1`, { queueWriteToDisk: true, isDirectory: true });
+    d.set(`/dir1/dir2/file1.js`, { queueWriteToDisk: true, isFile: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([`/dir1/dir2/dir3/file2.js`, `/dir1/dir2/file1.js`]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`/dir1`, `/dir1/dir2`, `/dir1/dir2/dir3`]);
-    expect(d[`/dir1`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1/dir2/file1.js`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1/dir2/dir3/file2.js`].queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1/dir2/file1.js`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1/dir2/dir3/file2.js`).queueDeleteFromDisk).toBe(false);
   });
 
   it(`do not delete a files/directory if we also want to ensure it`, () => {
-    d[`/dir1/file1.js`] = { queueWriteToDisk: true, queueDeleteFromDisk: true, isFile: true };
-    d[`/dir1`] = { queueDeleteFromDisk: true, isDirectory: true };
+    d.set(`/dir1/file1.js`, { queueWriteToDisk: true, queueDeleteFromDisk: true, isFile: true });
+    d.set(`/dir1`, { queueDeleteFromDisk: true, isDirectory: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([`/dir1/file1.js`]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`/dir1`]);
-    expect(d[`/dir1/file1.js`].queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir1/file1.js`).queueWriteToDisk).toBe(false);
   });
 
   it(`queueDeleteFromDisk`, () => {
-    d[`/`] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[`/dir1`] = { queueDeleteFromDisk: true, isDirectory: true };
-    d[`/dir1/file1.js`] = { queueDeleteFromDisk: true, isFile: true };
-    d[`/dir2/file2.js`] = { queueDeleteFromDisk: true, isFile: true };
+    d.set(`/`, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(`/dir1`, { queueDeleteFromDisk: true, isDirectory: true });
+    d.set(`/dir1/file1.js`, { queueDeleteFromDisk: true, isFile: true });
+    d.set(`/dir2/file2.js`, { queueDeleteFromDisk: true, isFile: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([`/dir1/file1.js`, `/dir2/file2.js`]);
     expect(i.filesToWrite).toEqual([]);
     expect(i.dirsToDelete).toEqual([`/dir1`]);
     expect(i.dirsToEnsure).toEqual([]);
-    expect(d[`/dir1`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1/file1.js`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir2/file2.js`].queueDeleteFromDisk).toBe(false);
-    expect(d[`/dir1`].queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1/file1.js`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir2/file2.js`).queueDeleteFromDisk).toBe(false);
+    expect(d.get(`/dir1`).queueDeleteFromDisk).toBe(false);
   });
 
   it(`write directory to disk`, () => {
-    d[`/dir1`] = { isDirectory: true, queueWriteToDisk: true };
+    d.set(`/dir1`, { isDirectory: true, queueWriteToDisk: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`/dir1`]);
-    expect(d[`/dir1`].queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir1`).queueWriteToDisk).toBe(false);
   });
 
   it(`write file queued even if it's also queueDeleteFromDisk`, () => {
-    d[`/dir1/file1.js`] = { queueWriteToDisk: true, queueDeleteFromDisk: true, isFile: true };
+    d.set(`/dir1/file1.js`, { queueWriteToDisk: true, queueDeleteFromDisk: true, isFile: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([`/dir1/file1.js`]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`/dir1`]);
-    expect(d[`/dir1/file1.js`].queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir1/file1.js`).queueWriteToDisk).toBe(false);
   });
 
   it(`write file queued`, () => {
-    d[`/dir1/file1.js`] = { queueWriteToDisk: true, isFile: true };
-    d[`/dir1/file2.js`] = { queueWriteToDisk: true, isFile: true };
-    d[`/dir2/file3.js`] = { queueWriteToDisk: true, isFile: true };
+    d.set(`/dir1/file1.js`, { queueWriteToDisk: true, isFile: true });
+    d.set(`/dir1/file2.js`, { queueWriteToDisk: true, isFile: true });
+    d.set(`/dir2/file3.js`, { queueWriteToDisk: true, isFile: true });
     const i = getCommitInstructions(path, d);
     expect(i.filesToDelete).toEqual([]);
     expect(i.filesToWrite).toEqual([`/dir1/file1.js`, `/dir1/file2.js`, `/dir2/file3.js`]);
     expect(i.dirsToDelete).toEqual([]);
     expect(i.dirsToEnsure).toEqual([`/dir1`, `/dir2`]);
-    expect(d[`/dir1/file1.js`].queueWriteToDisk).toBe(false);
-    expect(d[`/dir1/file2.js`].queueWriteToDisk).toBe(false);
-    expect(d[`/dir2/file3.js`].queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir1/file1.js`).queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir1/file2.js`).queueWriteToDisk).toBe(false);
+    expect(d.get(`/dir2/file3.js`).queueWriteToDisk).toBe(false);
   });
 
   it(`do nothing`, () => {
@@ -163,7 +163,7 @@ describe(`in-memory-fs`, () => {
 
   beforeEach(() => {
     mockedFs = mockFs();
-    fs = new InMemoryFileSystem(mockedFs, path);
+    fs = new InMemoryFileSystem(mockedFs, { path: path } as any);
   });
 
 
@@ -215,65 +215,6 @@ describe(`in-memory-fs`, () => {
     result = fs.accessSync(`/file`);
     expect(result).toBe(false);
     expect(mockedFs.diskReads).toBe(1);
-  });
-
-  it(`copyDir`, async () => {
-    await fs.writeFile(`/src/file1.js`, '1');
-    await fs.writeFile(`/src/file2.js`, '2');
-    await fs.commit();
-
-    await fs.copy(`/src`, `/some/path`);
-
-    const result = await fs.commit();
-    expect(result.filesWritten[0]).toBe(`/some/path/file1.js`);
-    expect(result.filesWritten[1]).toBe(`/some/path/file2.js`);
-    expect(result.filesWritten).toHaveLength(2);
-    expect(result.dirsDeleted).toHaveLength(0);
-    expect(result.dirsAdded[0]).toBe(`/some`);
-    expect(result.dirsAdded[1]).toBe(`/some/path`);
-  });
-
-  it(`copyFile`, async () => {
-    await fs.writeFile(`/src/file1.js`, '1');
-    await fs.writeFile(`/src/file2.js`, '2');
-    await fs.commit();
-
-    await fs.copy(`/src/file1.js`, `/some/path/file1.js`);
-
-    const result = await fs.commit();
-    expect(result.filesWritten[0]).toBe(`/some/path/file1.js`);
-    expect(result.filesWritten).toHaveLength(1);
-    expect(result.dirsDeleted).toHaveLength(0);
-    expect(result.dirsAdded[0]).toBe(`/some`);
-    expect(result.dirsAdded[1]).toBe(`/some/path`);
-  });
-
-  it(`copyFile, do copy w/ filter`, async () => {
-    await fs.writeFile(`/src/file.js`, 'content');
-    await fs.commit();
-
-    await fs.copy(`/src/file.js`, `/some/path/whatever.js`, { filter: (src, dest) => {
-      return src === `/src/file.js` && dest === `/some/path/whatever.js`;
-    }});
-
-    const result = await fs.commit();
-    expect(result.filesWritten[0]).toBe(`/some/path/whatever.js`);
-    expect(result.filesWritten).toHaveLength(1);
-  });
-
-  it(`copyFile, do not copy w/ filter`, async () => {
-    await fs.writeFile(`/src/file.js`, 'content');
-    await fs.commit();
-
-    await fs.copy(`/src/file.js`, `/some/path/whatever.js`, { filter: () => {
-      return false;
-    }});
-
-    const i = await fs.commit();
-    expect(i.filesWritten).toHaveLength(0);
-    expect(i.filesDeleted).toHaveLength(0);
-    expect(i.dirsAdded).toHaveLength(0);
-    expect(i.dirsDeleted).toHaveLength(0);
   });
 
   it(`readdir combines both in-memory read w/ inMemoryOnly option and disk readdir reads`, async () => {

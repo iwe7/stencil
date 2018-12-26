@@ -1,12 +1,11 @@
-import * as d from './index';
+import * as d from '.';
 
 
 export interface EntryModule {
   entryKey?: string;
+  filePath?: string;
   dependencies?: string[];
   moduleFiles: d.ModuleFile[];
-  compiledModuleJsText?: string;
-  compiledModuleLegacyJsText?: string;
   requiresScopedStyles?: boolean;
   modeNames?: string[];
   entryBundles?: EntryBundle[];
@@ -36,7 +35,6 @@ export interface ComponentRef {
 export interface PotentialComponentRef {
   tag?: string;
   html?: string;
-  filePath: string;
 }
 
 export interface ModuleGraph {

@@ -1,33 +1,34 @@
 import { DomApi, HostElement } from '../declarations';
 
 
-export function proxyController(domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string) {
-  return {
+export const proxyController = (domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string) => (
+  {
     'create': proxyProp(domApi, controllerComponents, ctrlTag, 'create'),
     'componentOnReady': proxyProp(domApi, controllerComponents, ctrlTag, 'componentOnReady')
-  };
-}
+  }
+);
 
 
-function proxyProp(domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string, proxyMethodName: string) {
-  return function () {
+const proxyProp = (domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string, proxyMethodName: string) =>
+  function () {
     const args = arguments;
     return loadComponent(domApi, controllerComponents, ctrlTag)
       .then(ctrlElm => ctrlElm[proxyMethodName].apply(ctrlElm, args));
   };
-}
 
 
-export function loadComponent(domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string): Promise<any> {
-  return new Promise(resolve => {
-    let ctrlElm = controllerComponents[ctrlTag];
+export const loadComponent = (domApi: DomApi, controllerComponents: { [tag: string]: HostElement }, ctrlTag: string, ctrlElm?: any, body?: any): Promise<any> => {
+  ctrlElm = controllerComponents[ctrlTag];
+  body = domApi.$doc.body;
+  if (body) {
     if (!ctrlElm) {
-      ctrlElm = domApi.$body.querySelector(ctrlTag) as HostElement;
+      ctrlElm = body.querySelector(ctrlTag) as HostElement;
     }
     if (!ctrlElm) {
       ctrlElm = controllerComponents[ctrlTag] = domApi.$createElement(ctrlTag) as any;
-      domApi.$appendChild(domApi.$body, ctrlElm);
+      domApi.$appendChild(body, ctrlElm);
     }
-    ctrlElm.componentOnReady(resolve);
-  });
-}
+    return ctrlElm.componentOnReady();
+  }
+  return Promise.resolve();
+};

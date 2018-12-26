@@ -1,4 +1,4 @@
-
+import * as d from '.';
 
 export interface Hyperscript {
   (sel: any): VNode;
@@ -11,25 +11,12 @@ export interface Hyperscript {
   (sel: any, data: VNodeData, children: VNode): VNode;
 }
 
-
 declare global {
-  // these must be "var" variables
-  // so that they could be re-declared by
-  // other collections, do not use "const" or "let"
-  // "h" function is global so JSX doesn't throw typescript errors
-  var h: Hyperscript;
+  export var h: Hyperscript;
 }
 
-
-export interface VNode {
-  // using v prefixes largely so closure has no issue property renaming
-  vtag?: string | number | Function;
-  vkey?: string | number;
-  vtext?: string;
-  vchildren?: VNode[];
-  vattrs?: any;
-  elm?: Element | Node;
-  ishost?: boolean;
+export interface VNode extends d.FVNode {
+  elm?: d.RenderNode;
 }
 
 
@@ -40,20 +27,8 @@ export interface VNodeData {
 }
 
 
-export type PropsType = VNodeProdData | number | string | null;
 export type ChildType = VNode | number | string;
-
-
-export interface ComponentProps {
-  children?: any[];
-  key?: string | number | any;
-}
-
-
-export interface FunctionalComponent<PropsType> {
-  (props?: PropsType & ComponentProps): VNode;
-}
-
+export type PropsType = VNodeProdData | number | string | null;
 
 /**
  * used by production compiler

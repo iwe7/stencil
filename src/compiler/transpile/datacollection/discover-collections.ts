@@ -1,18 +1,31 @@
 import * as d from '../../../declarations';
+import { normalizePath } from '../../util';
 import { parseCollectionModule } from '../../collections/parse-collection-module';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 
-export function getCollections(config: d.Config, compilerCtx: d.CompilerCtx, collections: d.Collection[], importNode: ts.ImportDeclaration) {
+export function getCollections(config: d.Config, compilerCtx: d.CompilerCtx, collections: d.Collection[], moduleFile: d.ModuleFile, importNode: ts.ImportDeclaration) {
   if (!importNode.moduleSpecifier || !compilerCtx || !collections) {
     return;
   }
 
   const moduleId = (importNode.moduleSpecifier as ts.StringLiteral).text;
 
+  // see if we can add this collection dependency
+  addCollection(config, compilerCtx, collections, moduleFile, config.rootDir, moduleId);
+}
+
+
+export function addCollection(config: d.Config, compilerCtx: d.CompilerCtx, collections: d.Collection[], moduleFile: d.ModuleFile, resolveFromDir: string, moduleId: string) {
   if (moduleId.startsWith('.') || moduleId.startsWith('/')) {
     // not a node module import, so don't bother
     return;
+  }
+
+  moduleFile.externalImports = moduleFile.externalImports || [];
+  if (!moduleFile.externalImports.includes(moduleId)) {
+    moduleFile.externalImports.push(moduleId);
+    moduleFile.externalImports.sort();
   }
 
   if (compilerCtx.resolvedCollections.includes(moduleId)) {
@@ -23,16 +36,10 @@ export function getCollections(config: d.Config, compilerCtx: d.CompilerCtx, col
   // cache that we've already parsed this
   compilerCtx.resolvedCollections.push(moduleId);
 
-  // see if we can add this collection dependency
-  addCollection(config, compilerCtx, collections, config.rootDir, moduleId);
-}
-
-
-function addCollection(config: d.Config, compilerCtx: d.CompilerCtx, collections: d.Collection[], resolveFromDir: string, moduleId: string) {
   let pkgJsonFilePath: string;
   try {
     // get the full package.json file path
-    pkgJsonFilePath = config.sys.resolveModule(resolveFromDir, moduleId);
+    pkgJsonFilePath = normalizePath(config.sys.resolveModule(resolveFromDir, moduleId));
 
   } catch (e) {
     // it's someone else's job to handle unresolvable paths
@@ -77,7 +84,7 @@ function addCollection(config: d.Config, compilerCtx: d.CompilerCtx, collections
     // let's keep digging down and discover all of them
     collection.dependencies.forEach(dependencyModuleId => {
       const resolveFromDir = config.sys.path.dirname(pkgJsonFilePath);
-      addCollection(config, compilerCtx, collections, resolveFromDir, dependencyModuleId);
+      addCollection(config, compilerCtx, collections, moduleFile, resolveFromDir, dependencyModuleId);
     });
   }
 }

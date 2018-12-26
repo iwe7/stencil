@@ -25,3 +25,13 @@ export interface ExternalStyleMeta {
 export interface ModeStyles {
   [modeName: string]: string | string[];
 }
+
+
+export interface CssImportData {
+  srcImport: string;
+  updatedImport?: string;
+  url: string;
+  filePath?: string;
+  altFilePath?: string;
+  styleText?: string;
+}

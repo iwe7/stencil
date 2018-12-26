@@ -1,12 +1,10 @@
 import * as d from '../declarations';
-import { Build } from '../util/build-conditionals';
 import { initHostSnapshot } from './host-snapshot';
-import { PRIORITY } from '../util/constants';
 import { initElementListeners } from './listeners';
 
 
-export function connectedCallback(plt: d.PlatformApi, cmpMeta: d.ComponentMeta, elm: d.HostElement) {
-  if (Build.listener) {
+export const connectedCallback = (plt: d.PlatformApi, cmpMeta: d.ComponentMeta, elm: d.HostElement, perf: Performance) => {
+  if (_BUILD_.listener) {
     // initialize our event listeners on the host element
     // we do this now so that we can listening to events that may
     // have fired even before the instance is ready
@@ -24,15 +22,20 @@ export function connectedCallback(plt: d.PlatformApi, cmpMeta: d.ComponentMeta, 
   plt.isDisconnectedMap.delete(elm);
 
   if (!plt.hasConnectedMap.has(elm)) {
+    if (_BUILD_.profile) {
+      if (!elm['s-id']) {
+        // assign a unique id to this host element
+        // it's possible this was already given an element id
+        elm['s-id'] = plt.nextId();
+      }
+      perf.mark(`connected_start:${elm.nodeName.toLowerCase()}:${elm['s-id']}`);
+    }
+
+    plt.hasConnectedComponent = true;
+    plt.processingCmp.add(elm);
 
     // first time we've connected
     plt.hasConnectedMap.set(elm, true);
-
-    if (!elm['s-id']) {
-      // assign a unique id to this host element
-      // it's possible this was already given an element id
-      elm['s-id'] = plt.nextId();
-    }
 
     // register this component as an actively
     // loading child to its parent component
@@ -43,17 +46,23 @@ export function connectedCallback(plt: d.PlatformApi, cmpMeta: d.ComponentMeta, 
     // ensure the "mode" attribute has been added to the element
     // place in high priority since it's not much work and we need
     // to know as fast as possible, but still an async tick in between
-    plt.queue.add(() =>
+    plt.queue.tick(() => {
       // start loading this component mode's bundle
       // if it's already loaded then the callback will be synchronous
-      plt.requestBundle(cmpMeta, elm, initHostSnapshot(plt.domApi, cmpMeta, elm))
+      plt.hostSnapshotMap.set(elm, initHostSnapshot(plt.domApi, cmpMeta, elm));
 
-    , PRIORITY.High);
+      if (_BUILD_.profile) {
+        perf.mark(`connected_end:${elm.nodeName.toLowerCase()}:${elm['s-id']}`);
+        perf.measure(`connected:${elm.nodeName.toLowerCase()}:${elm['s-id']}`, `connected_start:${elm.nodeName.toLowerCase()}:${elm['s-id']}`, `connected_end:${elm.nodeName.toLowerCase()}:${elm['s-id']}`);
+      }
+
+      plt.requestBundle(cmpMeta, elm);
+    });
   }
-}
+};
 
 
-export function registerWithParentComponent(plt: d.PlatformApi, elm: d.HostElement, ancestorHostElement?: d.HostElement) {
+export const registerWithParentComponent = (plt: d.PlatformApi, elm: d.HostElement, ancestorHostElement?: d.HostElement) => {
   // find the first ancestor host element (if there is one) and register
   // this element as one of the actively loading child elements for its ancestor
   ancestorHostElement = elm;
@@ -63,7 +72,7 @@ export function registerWithParentComponent(plt: d.PlatformApi, elm: d.HostEleme
     if (plt.isDefinedComponent(ancestorHostElement)) {
       // we found this elements the first ancestor host element
       // if the ancestor already loaded then do nothing, it's too late
-      if (!plt.hasLoadedMap.has(elm)) {
+      if (!plt.isCmpReady.has(elm)) {
 
         // keep a reference to this element's ancestor host element
         // elm._ancestorHostElement = ancestorHostElement;
@@ -71,13 +80,9 @@ export function registerWithParentComponent(plt: d.PlatformApi, elm: d.HostEleme
 
         // ensure there is an array to contain a reference to each of the child elements
         // and set this element as one of the ancestor's child elements it should wait on
-        if ((ancestorHostElement as any)['$activeLoading']) {
-          // $activeLoading deprecated 2018-04-02
-          ancestorHostElement['s-ld'] = (ancestorHostElement as any)['$activeLoading'];
-        }
         (ancestorHostElement['s-ld'] = ancestorHostElement['s-ld'] || []).push(elm);
       }
       break;
     }
   }
-}
+};

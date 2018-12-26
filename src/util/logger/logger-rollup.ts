@@ -1,16 +1,16 @@
 import { BuildCtx, CompilerCtx, Config, Diagnostic, ModuleFile, PrintLine } from '../../declarations';
-import { buildWarn } from '../../compiler/util';
-import { formatFileName, formatHeader, splitLineBreaks } from './logger-util';
-import { highlight } from './highlight/highlight';
+import { buildWarn, normalizePath } from '../../compiler/util';
+import { splitLineBreaks } from './logger-util';
+import { toTitleCase } from '../helpers';
 
 
 export function loadRollupDiagnostics(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, rollupError: any) {
   const d: Diagnostic = {
     level: 'error',
-    type: 'build',
+    type: 'bundling',
     language: 'javascript',
-    header: 'build error',
     code: rollupError.code,
+    header: `Rollup: ${formatErrorCode(rollupError.code)}`,
     messageText: rollupError.message,
     relFilePath: null,
     absFilePath: null,
@@ -18,39 +18,32 @@ export function loadRollupDiagnostics(config: Config, compilerCtx: CompilerCtx, 
   };
 
   if (rollupError.loc && rollupError.loc.file) {
-    d.absFilePath = rollupError.loc.file;
-    d.relFilePath = formatFileName(config.rootDir, d.absFilePath);
+    d.absFilePath = normalizePath(rollupError.loc.file);
+    if (config) {
+      d.relFilePath = normalizePath(config.sys.path.relative(config.cwd, d.absFilePath));
+    }
 
     try {
       const sourceText = compilerCtx.fs.readFileSync(d.absFilePath);
       const srcLines = splitLineBreaks(sourceText);
-      let htmlLines = srcLines;
-
-      try {
-        htmlLines = splitLineBreaks(highlight(d.language, sourceText, true).value);
-      } catch (e) {}
 
       const errorLine: PrintLine = {
         lineIndex: rollupError.loc.line - 1,
         lineNumber: rollupError.loc.line,
         text: srcLines[rollupError.loc.line - 1],
-        html: htmlLines[rollupError.loc.line - 1],
         errorCharStart: rollupError.loc.column,
         errorLength: 0
       };
 
+      d.lineNumber = errorLine.lineNumber;
+      d.columnNumber = errorLine.errorCharStart;
+
       const highlightLine = errorLine.text.substr(rollupError.loc.column);
       for (var i = 0; i < highlightLine.length; i++) {
-        if (CHAR_BREAK.indexOf(highlightLine.charAt(i)) > -1) {
+        if (charBreak.has(highlightLine.charAt(i))) {
           break;
         }
         errorLine.errorLength++;
-      }
-
-      if (errorLine.html && errorLine.html.indexOf('class="hljs') === -1) {
-        try {
-          errorLine.html = highlight(d.language, errorLine.text, true).value;
-        } catch (e) {}
       }
 
       d.lines.push(errorLine);
@@ -60,23 +53,14 @@ export function loadRollupDiagnostics(config: Config, compilerCtx: CompilerCtx, 
         errorLine.errorCharStart--;
       }
 
-      d.header =  formatHeader('bundling', d.absFilePath, config.rootDir, errorLine.lineNumber);
-
       if (errorLine.lineIndex > 0) {
         const previousLine: PrintLine = {
           lineIndex: errorLine.lineIndex - 1,
           lineNumber: errorLine.lineNumber - 1,
           text: srcLines[errorLine.lineIndex - 1],
-          html: htmlLines[errorLine.lineIndex - 1],
           errorCharStart: -1,
           errorLength: -1
         };
-
-        if (previousLine.html && previousLine.html.indexOf('class="hljs') === -1) {
-          try {
-            previousLine.html = highlight(d.language, previousLine.text, true).value;
-          } catch (e) {}
-        }
 
         d.lines.unshift(previousLine);
       }
@@ -86,16 +70,9 @@ export function loadRollupDiagnostics(config: Config, compilerCtx: CompilerCtx, 
           lineIndex: errorLine.lineIndex + 1,
           lineNumber: errorLine.lineNumber + 1,
           text: srcLines[errorLine.lineIndex + 1],
-          html: htmlLines[errorLine.lineIndex + 1],
           errorCharStart: -1,
           errorLength: -1
         };
-
-        if (nextLine.html && nextLine.html.indexOf('class="hljs') === -1) {
-          try {
-            nextLine.html = highlight(d.language, nextLine.text, true).value;
-          } catch (e) {}
-        }
 
         d.lines.push(nextLine);
       }
@@ -107,24 +84,24 @@ export function loadRollupDiagnostics(config: Config, compilerCtx: CompilerCtx, 
   buildCtx.diagnostics.push(d);
 }
 
-const CHAR_BREAK = [' ', '=', '.', ',', '?', ':', ';', '(', ')', '{', '}', '[', ']', '|', `'`, `"`, '`'];
+const charBreak = new Set([' ', '=', '.', ',', '?', ':', ';', '(', ')', '{', '}', '[', ']', '|', `'`, `"`, '`']);
 
 
 export function createOnWarnFn(config: Config, diagnostics: Diagnostic[], bundleModulesFiles?: ModuleFile[]) {
-  const previousWarns: {[key: string]: boolean} = {};
+  const previousWarns = new Set<string>();
 
   return function onWarningMessage(warning: { code: string, importer: string, message: string }) {
-    if (!warning || warning.message in previousWarns) {
+    if (!warning || previousWarns.has(warning.message)) {
       return;
     }
 
-    previousWarns[warning.message] = true;
+    previousWarns.add(warning.message);
 
     if (warning.code) {
-      if (INGORE_WARNING_CODES.includes(warning.code)) {
+      if (ignoreWarnCodes.has(warning.code)) {
         return;
       }
-      if (SUPPRESS_WARNING_CODES.includes(warning.code)) {
+      if (suppressWarnCodes.has(warning.code)) {
         config.logger.debug(warning.message);
         return;
       }
@@ -138,15 +115,27 @@ export function createOnWarnFn(config: Config, diagnostics: Diagnostic[], bundle
       }
     }
 
-    buildWarn(diagnostics).messageText = label + (warning.message || warning);
+    const diagnostic = buildWarn(diagnostics);
+    diagnostic.header = `Bundling Warning`;
+    diagnostic.messageText = label + (warning.message || warning);
   };
 }
 
-
-const INGORE_WARNING_CODES = [
+const ignoreWarnCodes = new Set([
   `THIS_IS_UNDEFINED`, `NON_EXISTENT_EXPORT`
-];
+]);
 
-const SUPPRESS_WARNING_CODES = [
+const suppressWarnCodes = new Set([
   `CIRCULAR_DEPENDENCY`
-];
+]);
+
+
+function formatErrorCode(errorCode: any) {
+  if (typeof errorCode === 'string') {
+    return errorCode.split('_').map(c => {
+      return toTitleCase(c.toLowerCase());
+    }).join(' ');
+  }
+
+  return errorCode;
+}

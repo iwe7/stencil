@@ -1,66 +1,71 @@
 import { AppRegistry, BuildCtx, CompilerCtx, Config, SourceTarget } from '../../declarations';
-import { buildExpressionReplacer } from '../build/replacer';
 import { createOnWarnFn, loadRollupDiagnostics } from '../../util/logger/logger-rollup';
-import { generatePreamble, minifyJs } from '../util';
-import { getGlobalBuildPath, getGlobalFileName } from './app-file-naming';
+import { generatePreamble } from '../util';
+import { getGlobalEsmBuildPath, getGlobalFileName, getGlobalJsBuildPath } from './app-file-naming';
 import inMemoryFsRead from '../bundle/rollup-plugins/in-memory-fs-read';
-import resolveCollections from '../bundle/rollup-plugins/resolve-collections';
-import { transpileToEs5 } from '../transpile/core-build';
+import { minifyJs } from '../minifier';
+import { transpileToEs5Main } from '../transpile/transpile-to-es5-main';
+import rollupPluginReplace from '../bundle/rollup-plugins/rollup-plugin-replace';
 
 
-export async function generateAppGlobalScript(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, appRegistry: AppRegistry, sourceTarget?: SourceTarget) {
-  const globalJsContents = await generateAppGlobalContents(config, compilerCtx, buildCtx, sourceTarget);
+export async function generateBrowserAppGlobalScript(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, appRegistry: AppRegistry, sourceTarget: SourceTarget) {
+  const globalJsContents = await generateAppGlobalContent(config, compilerCtx, buildCtx, sourceTarget);
 
-  if (globalJsContents.length) {
+  if (globalJsContents.length > 0) {
     appRegistry.global = getGlobalFileName(config);
 
     const globalJsContent = generateGlobalJs(config, globalJsContents);
 
     compilerCtx.appFiles.global = globalJsContent;
 
-    const outputTargets = config.outputTargets.filter(outputTarget => {
-      return outputTarget.appBuild;
-    });
-
-    await Promise.all(outputTargets.map(outputTarget => {
-      const appGlobalWWWFilePath = getGlobalBuildPath(config, outputTarget);
-
-      config.logger.debug(`build, app global www: ${appGlobalWWWFilePath}`);
-      return compilerCtx.fs.writeFile(appGlobalWWWFilePath, globalJsContent);
-    }));
+    if (sourceTarget !== 'es5') {
+      const promises = config.outputTargets.filter(o => o.appBuild).map(outputTarget => {
+        const appGlobalFilePath = getGlobalJsBuildPath(config, outputTarget as any);
+        return compilerCtx.fs.writeFile(appGlobalFilePath, globalJsContent);
+      });
+      await Promise.all(promises);
+    }
   }
-
-  return globalJsContents.join('\n').trim();
+  return globalJsContents;
 }
 
+export async function generateEsmAppGlobalScript(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, sourceTarget: SourceTarget) {
+  const globalJsContents = await generateAppGlobalContent(config, compilerCtx, buildCtx, sourceTarget);
 
-export async function generateAppGlobalContents(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, sourceTarget: SourceTarget) {
-  let globalJsContents: string[] = [];
-
-  const results = await Promise.all([
-    loadDependentGlobalJsContents(config, compilerCtx, buildCtx, sourceTarget),
-    bundleProjectGlobal(config, compilerCtx, buildCtx, sourceTarget, config.namespace, config.globalScript)
-  ]);
-
-  const dependentGlobalJsContents = results[0];
-  const projectGlobalJsContent = results[1];
-
-  globalJsContents = globalJsContents.concat(dependentGlobalJsContents);
-
-  if (projectGlobalJsContent) {
-    globalJsContents.push(projectGlobalJsContent);
+  if (globalJsContents.length > 0) {
+    const globalEsmContent = generateGlobalEsm(config, globalJsContents);
+    const promises = config.outputTargets.filter(o => o.type === 'dist').map(outputTarget => {
+      const appGlobalFilePath = getGlobalEsmBuildPath(config, outputTarget as any, sourceTarget);
+      return compilerCtx.fs.writeFile(appGlobalFilePath, globalEsmContent);
+    });
+    await Promise.all(promises);
   }
 
   return globalJsContents;
 }
 
 
-async function loadDependentGlobalJsContents(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, sourceTarget: SourceTarget): Promise<string[]> {
+export async function generateAppGlobalContent(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, sourceTarget: SourceTarget) {
+  const [projectGlobalJsContent, dependentGlobalJsContents] = await Promise.all([
+    bundleProjectGlobal(config, compilerCtx, buildCtx, sourceTarget, config.namespace, config.globalScript),
+    loadDependentGlobalJsContents(config, compilerCtx, buildCtx, sourceTarget),
+  ]);
+
+  return [
+    projectGlobalJsContent,
+    ...dependentGlobalJsContents
+  ].join('\n').trim();
+}
+
+
+async function loadDependentGlobalJsContents(config: Config, compilerCtx: CompilerCtx, buildCtx: BuildCtx, sourceTarget: SourceTarget) {
   const collections = compilerCtx.collections.filter(m => m.global && m.global.jsFilePath);
 
-  return Promise.all(collections.map(collectionManifest => {
+  const dependentGlobalJsContents = await Promise.all(collections.map(collectionManifest => {
     return bundleProjectGlobal(config, compilerCtx, buildCtx, sourceTarget, collectionManifest.collectionName, collectionManifest.global.jsFilePath);
   }));
+
+  return dependentGlobalJsContents;
 }
 
 
@@ -73,35 +78,32 @@ async function bundleProjectGlobal(config: Config, compilerCtx: CompilerCtx, bui
 
   if (!entry) {
     // looks like they never provided an entry file, which is fine, so let's skip this
-    return null;
-  }
-
-  const cacheKey = compilerCtx.cache.createKey('bundleProjectGlobal', namespace, entry, sourceTarget);
-  const cachedContent = await compilerCtx.cache.get(cacheKey);
-  if (cachedContent != null) {
-    buildCtx.global = compilerCtx.moduleFiles[config.globalScript];
-    return cachedContent;
+    return '';
   }
 
   // ok, so the project also provided an entry file, so let's bundle it up and
   // the output from this can be tacked onto the top of the project's core file
   // start the bundler on our temporary file
-  let output = '';
-
   try {
+    const replaceObj = {
+      'process.env.NODE_ENV': config.devMode ? 'development' : 'production'
+    };
     const rollup = await config.sys.rollup.rollup({
       input: entry,
       plugins: [
-        resolveCollections(compilerCtx),
+        inMemoryFsRead(config, compilerCtx, buildCtx),
         config.sys.rollup.plugins.nodeResolve({
           jsnext: true,
           main: true
         }),
+        config.sys.rollup.plugins.emptyJsResolver(),
         config.sys.rollup.plugins.commonjs({
           include: 'node_modules/**',
           sourceMap: false
         }),
-        inMemoryFsRead(config, config.sys.path, compilerCtx),
+        rollupPluginReplace({
+          values: replaceObj
+        }),
         ...config.plugins
       ],
       onwarn: createOnWarnFn(config, buildCtx.diagnostics)
@@ -110,23 +112,16 @@ async function bundleProjectGlobal(config: Config, compilerCtx: CompilerCtx, bui
     const results = await rollup.generate({ format: 'es' });
 
     // cool, so we balled up all of the globals into one string
-
-    // replace build time expressions, like process.env.NODE_ENV === 'production'
-    // with a hard coded boolean
-    results.code = buildExpressionReplacer(config, results.code);
+    buildCtx.global = compilerCtx.moduleFiles[config.globalScript];
 
     // wrap our globals code with our own iife
-    output = await wrapGlobalJs(config, compilerCtx, buildCtx, sourceTarget, namespace, results.code);
-
-    await compilerCtx.cache.put(cacheKey, output);
-
-    buildCtx.global = compilerCtx.moduleFiles[config.globalScript];
+    return await wrapGlobalJs(config, compilerCtx, buildCtx, sourceTarget, namespace, results.code);
 
   } catch (e) {
     loadRollupDiagnostics(config, compilerCtx, buildCtx, e);
   }
 
-  return output;
+  return '';
 }
 
 
@@ -136,19 +131,16 @@ async function wrapGlobalJs(config: Config, compilerCtx: CompilerCtx, buildCtx: 
   // just format it a touch better in dev mode
   jsContent = `\n/** ${globalJsName || ''} global **/\n\n${jsContent}`;
 
-  const lines = jsContent.split(/\r?\n/);
-  jsContent = lines.map(line => {
-    if (line.length) {
-      return '    ' + line;
-    }
-    return line;
-  }).join('\n');
+  jsContent = jsContent
+    .split(/\r?\n/)
+    .map(line => (line.length > 0) ? '    ' + line : line)
+    .join('\n');
 
   if (sourceTarget === 'es5') {
-    // global could already be in es2015
+    // global could already be in es2017
     // transpile it down to es5
-    config.logger.debug(`transpile global to es5: ${globalJsName}`);
-    const transpileResults = await transpileToEs5(compilerCtx, jsContent);
+    buildCtx.debug(`transpile global to es5: ${globalJsName}`);
+    const transpileResults = await transpileToEs5Main(config, compilerCtx, jsContent);
     if (transpileResults.diagnostics && transpileResults.diagnostics.length) {
       buildCtx.diagnostics.push(...transpileResults.diagnostics);
     } else {
@@ -157,25 +149,32 @@ async function wrapGlobalJs(config: Config, compilerCtx: CompilerCtx, buildCtx: 
   }
 
   if (config.minifyJs) {
-    const minifyResults = await minifyJs(config, compilerCtx, jsContent, sourceTarget, false);
-    if (minifyResults.diagnostics && minifyResults.diagnostics.length) {
-      buildCtx.diagnostics.push(...minifyResults.diagnostics);
-    } else {
-      jsContent = minifyResults.output;
-    }
+    jsContent = await minifyJs(config, compilerCtx, buildCtx.diagnostics, jsContent, sourceTarget, false);
   }
 
-  return `\n(function(resourcesUrl){${jsContent}\n})(resourcesUrl);\n`;
+  return `\n(function(Context, resourcesUrl){${jsContent}\n})(x,r);\n`;
 }
 
 
-export function generateGlobalJs(config: Config, globalJsContents: string[]) {
+export function generateGlobalJs(config: Config, globalJsContents: string) {
   const output = [
     generatePreamble(config) + '\n',
     `(function(namespace,resourcesUrl){`,
     `"use strict";\n`,
-    globalJsContents.join('\n').trim(),
+    globalJsContents,
     `\n})("${config.namespace}");`
+  ].join('');
+
+  return output;
+}
+
+
+export function generateGlobalEsm(config: Config, globalJsContents: string) {
+  const output = [
+    generatePreamble(config) + '\n',
+    `export default function appGlobal(n, x, w, d, r, h) {`,
+    globalJsContents,
+    `\n}`
   ].join('');
 
   return output;

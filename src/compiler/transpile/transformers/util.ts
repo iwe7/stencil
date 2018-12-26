@@ -1,5 +1,5 @@
 import { DEFAULT_COMPILER_OPTIONS } from '../compiler-options';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 
 /**
@@ -125,7 +125,7 @@ function objectToObjectLiteral(obj: { [key: string]: any }): ts.ObjectLiteralExp
     return ts.createPropertyAssignment(ts.createLiteral(key), convertValueToLiteral(obj[key]) as ts.Expression);
   });
 
-  return ts.createObjectLiteral(newProperties);
+  return ts.createObjectLiteral(newProperties, true);
 }
 
 /**
@@ -145,7 +145,7 @@ function arrayToArrayLiteral(list: any[]): ts.ArrayLiteralExpression {
  * @returns a string
  */
 export async function transformSourceString(fileName: string, sourceText: string, transformers: ts.TransformerFactory<ts.SourceFile>[]) {
-  const transformed = ts.transform(ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.ES2015), transformers);
+  const transformed = ts.transform(ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.ES2017), transformers);
   const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed }, {
       onEmitNode: transformed.emitNodeWithNotification,
       substituteNode: transformed.substituteNode

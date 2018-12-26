@@ -1,40 +1,20 @@
-import { BuildCtx, ComponentMeta } from '../../declarations';
+import * as d from '../../declarations';
 import { catchError } from '../util';
-import { ShadowCss } from './shadow-css';
+import { getElementScopeId, getScopeId } from '../../util/scope';
 
 
-export function scopeComponentCss(buildCtx: BuildCtx, cmpMeta: ComponentMeta, cssText: string) {
+export async function scopeComponentCss(config: d.Config, buildCtx: d.BuildCtx, cmpMeta: d.ComponentMeta, mode: string, cssText: string) {
   try {
-    const scopeAttribute = getScopeAttribute(cmpMeta);
-    const hostScopeAttr = getHostScopeAttribute(cmpMeta);
-    const slotScopeAttr = getSlotScopeAttribute(cmpMeta);
+    const scopeId = getScopeId(cmpMeta, mode);
 
-    cssText = scopeCss(cssText, scopeAttribute, hostScopeAttr, slotScopeAttr);
+    const hostScopeId = getElementScopeId(scopeId, true);
+    const slotScopeId = getElementScopeId(scopeId);
+
+    cssText = await config.sys.scopeCss(cssText, scopeId, hostScopeId, slotScopeId);
 
   } catch (e) {
     catchError(buildCtx.diagnostics, e);
   }
 
   return cssText;
-}
-
-
-export function scopeCss(cssText: string, scopeAttribute: string, hostScopeAttr: string, slotScopeAttr: string) {
-  const sc = new ShadowCss();
-  return sc.shimCssText(cssText, scopeAttribute, hostScopeAttr, slotScopeAttr);
-}
-
-
-export function getScopeAttribute(cmpMeta: ComponentMeta) {
-  return `data-${cmpMeta.tagNameMeta}`;
-}
-
-
-export function getHostScopeAttribute(cmpMeta: ComponentMeta) {
-  return `data-${cmpMeta.tagNameMeta}-host`;
-}
-
-
-export function getSlotScopeAttribute(cmpMeta: ComponentMeta) {
-  return `data-${cmpMeta.tagNameMeta}-slot`;
 }

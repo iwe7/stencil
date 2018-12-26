@@ -1,5 +1,5 @@
 import * as d from '../../../declarations';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 
 export function evalText(text: string) {
@@ -40,12 +40,56 @@ export function isMethodWithDecorators(member: ts.ClassElement): boolean {
     && member.decorators.length > 0;
 }
 
-export function serializeSymbol(checker: ts.TypeChecker, symbol: ts.Symbol) {
+export function serializeSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): d.JsDoc {
   return {
     name: symbol.getName(),
+    tags: symbol.getJsDocTags(),
     documentation: ts.displayPartsToString(symbol.getDocumentationComment(checker)),
-    type: checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration))
-  } as d.JSDoc;
+    type: serializeDocsSymbol(checker, symbol)
+  };
+}
+
+export function serializeDocsSymbol(checker: ts.TypeChecker, symbol: ts.Symbol): string {
+  const type = checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration);
+  const set = new Set<string>();
+  parseDocsType(checker, type, set);
+
+  // normalize booleans
+  const hasTrue = set.delete('true');
+  const hasFalse = set.delete('false');
+  if (hasTrue || hasFalse) {
+    set.add('boolean');
+  }
+
+  let parts = Array.from(set.keys()).sort();
+  if (parts.length > 1) {
+    parts = parts.map(p => (p.indexOf('=>') >= 0) ? `(${p})` : p);
+  }
+  if (parts.length > 20) {
+    return typeToString(checker, type);
+  } else {
+    return parts.join(' | ');
+  }
+}
+
+const TYPE_FORMAT_FLAGS =
+  ts.TypeFormatFlags.NoTruncation |
+  ts.TypeFormatFlags.InTypeAlias |
+  ts.TypeFormatFlags.InElementType;
+
+export function typeToString(checker: ts.TypeChecker, type: ts.Type) {
+  return checker.typeToString(type, undefined, TYPE_FORMAT_FLAGS);
+}
+
+export function parseDocsType(checker: ts.TypeChecker, type: ts.Type, parts: Set<string>) {
+  const text = typeToString(checker, type);
+  if (type.isUnion()) {
+    (type as ts.UnionType).types.forEach(t => {
+      parseDocsType(checker, t, parts);
+    });
+  } else {
+    parts.add(text);
+  }
 }
 
 export function isMethod(member: ts.ClassElement, methodName: string) {
@@ -103,8 +147,10 @@ function getTypeReferenceLocation(typeName: string, sourceFile: ts.SourceFile): 
   // Loop through all top level imports to find any reference to the type for 'import' reference location
   const importTypeDeclaration = sourceFileObj.statements.find(st => {
     const statement = ts.isImportDeclaration(st) &&
+      st.importClause &&
       ts.isImportClause(st.importClause) &&
-      st.importClause.namedBindings &&  ts.isNamedImports(st.importClause.namedBindings) &&
+      st.importClause.namedBindings &&
+      ts.isNamedImports(st.importClause.namedBindings) &&
       Array.isArray(st.importClause.namedBindings.elements) &&
       st.importClause.namedBindings.elements.find(nbe => nbe.name.getText() === typeName);
     if (!statement) {
@@ -129,13 +175,19 @@ function getTypeReferenceLocation(typeName: string, sourceFile: ts.SourceFile): 
       Array.isArray(st.modifiers) &&
       st.modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword));
 
+    const isTypeAliasDeclarationExported = ((ts.isTypeAliasDeclaration(st) &&
+      (<ts.Identifier>st.name).getText() === typeName) &&
+      Array.isArray(st.modifiers) &&
+      st.modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword));
+
     // Is the interface exported through a named export
     const isTypeInExportDeclaration = ts.isExportDeclaration(st) &&
       ts.isNamedExports(st.exportClause) &&
       st.exportClause.elements.some(nee => nee.name.getText() === typeName);
 
-    return isInterfaceDeclarationExported || isTypeInExportDeclaration;
+    return isInterfaceDeclarationExported || isTypeAliasDeclarationExported || isTypeInExportDeclaration;
   });
+
 
   if (isExported) {
     return {

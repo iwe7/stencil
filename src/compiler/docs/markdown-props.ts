@@ -1,75 +1,38 @@
 import * as d from '../../declarations';
-import { getMemberDocumentation } from './docs-util';
-import { PROP_TYPE } from '../../util/constants';
+import { MarkdownTable } from './docs-util';
 
-
-export class MarkdownProps {
-  private rows: Row[] = [];
-
-  addRow(memberName: string, memberMeta: d.MemberMeta) {
-    this.rows.push(new Row(memberName, memberMeta));
-  }
-
-  toMarkdown() {
-    const content: string[] = [];
-    if (!this.rows.length) {
-      return content;
-    }
-
-    content.push(`## Properties`);
-    content.push(``);
-
-    this.rows = this.rows.sort((a, b) => {
-      if (a.memberName < b.memberName) return -1;
-      if (a.memberName > b.memberName) return 1;
-      return 0;
-    });
-
-    this.rows.forEach(row => {
-      content.push(...row.toMarkdown());
-    });
-
+export function propsToMarkdown(props: d.JsonDocsProp[]) {
+  const content: string[] = [];
+  if (props.length === 0) {
     return content;
   }
+
+  content.push(`## Properties`);
+  content.push(``);
+
+  const table = new MarkdownTable();
+
+  table.addHeader([
+    'Property',
+    'Attribute',
+    'Description',
+    'Type',
+    'Default'
+  ]);
+
+  props.forEach(prop => {
+    table.addRow([
+      `\`${prop.name}\``,
+      prop.attr ? `\`${prop.attr}\`` : '--',
+      prop.docs,
+      `\`${prop.type}\``,
+      `\`${prop.default}\``
+    ]);
+  });
+
+  content.push(...table.toMarkdown());
+  content.push(``);
+  content.push(``);
+
+  return content;
 }
-
-
-class Row {
-
-  constructor(public memberName: string, private memberMeta: d.MemberMeta) {}
-
-  toMarkdown() {
-    const content: string[] = [];
-
-    content.push(`#### ${this.memberName}`);
-    content.push(``);
-    content.push(getPropType(this.memberMeta.propType));
-    content.push(``);
-
-    const doc = getMemberDocumentation(this.memberMeta.jsdoc);
-    if (doc) {
-      content.push(doc);
-      content.push(``);
-    }
-
-    content.push(``);
-
-    return content;
-  }
-}
-
-
-function getPropType(propType: PROP_TYPE) {
-  switch (propType) {
-    case PROP_TYPE.Any:
-      return 'any';
-    case PROP_TYPE.Boolean:
-      return 'boolean';
-    case PROP_TYPE.Number:
-      return 'number';
-    case PROP_TYPE.String:
-      return 'string';
-  }
-  return '';
-}
-

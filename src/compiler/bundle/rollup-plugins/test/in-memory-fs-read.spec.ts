@@ -8,7 +8,10 @@ describe('inMemoryFsRead', () => {
   const config = mockConfig();
   const path = config.sys.path;
   let compierCtx: d.CompilerCtx;
-  let plugin = inMemoryFsRead(config, path, compierCtx);
+  const buildCtx: d.BuildCtx = {} as any;
+  buildCtx.isActiveBuild = true;
+
+  let plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
 
   beforeEach(() => {
     compierCtx = mockCompilerCtx();
@@ -18,10 +21,11 @@ describe('inMemoryFsRead', () => {
   it('absolute, append index.js', async () => {
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file/index.js'
       }
     };
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
     const importee = '/dist/file';
     const importer = null;
     const id = await plugin.resolveId(importee, importer);
@@ -31,10 +35,11 @@ describe('inMemoryFsRead', () => {
   it('absolute, append .js', async () => {
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file.js'
       }
     };
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
     const importee = '/dist/file';
     const importer = null;
     const id = await plugin.resolveId(importee, importer);
@@ -44,10 +49,11 @@ describe('inMemoryFsRead', () => {
   it('absolute, exact match', async () => {
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file.js'
       }
     };
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
     const importee = '/dist/file.js';
     const importer = null;
     const id = await plugin.resolveId(importee, importer);
@@ -57,10 +63,11 @@ describe('inMemoryFsRead', () => {
   it('absolute, ts importee, null importer', async () => {
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file.js'
       }
     };
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
     const importee = '/src/file.ts';
     const importer = null;
     const id = await plugin.resolveId(importee, importer);
@@ -70,10 +77,11 @@ describe('inMemoryFsRead', () => {
   it('absolute, ts importee, null importer', async () => {
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file.js'
       }
     };
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config,  compierCtx, buildCtx);
     const importee = '/src/file.ts';
     const importer = null;
     const id = await plugin.resolveId(importee, importer);
@@ -92,11 +100,12 @@ describe('inMemoryFsRead', () => {
 
     compierCtx.moduleFiles = {
       '/src/file.ts': {
+        sourceFilePath: '/src/file.ts',
         jsFilePath: '/dist/file.js'
       }
     };
 
-    plugin = inMemoryFsRead(config, path, compierCtx);
+    plugin = inMemoryFsRead(config, compierCtx, buildCtx);
 
     const importee = './file';
     const importer = null;

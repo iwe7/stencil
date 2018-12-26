@@ -6,22 +6,46 @@ import * as fs from 'fs';
 
 
 describe('transpile', () => {
+  const root = path.resolve('/');
 
   let c: TestingCompiler;
 
   beforeEach(async () => {
     c = new TestingCompiler();
-    await c.fs.writeFile('/src/index.html', `<cmp-a></cmp-a>`);
+    await c.fs.writeFile(path.join(root, 'src', 'index.html'), `<cmp-a></cmp-a>`);
     await c.fs.commit();
+  });
+
+
+  it('should transpile enums', async () => {
+    c.config.minifyJs = true;
+    await c.fs.writeFiles({
+      [path.join(root, 'src', 'my-enum.tsx')]: `export const enum MyEnum { A = 1, B = 2, C = 3 }`,
+      [path.join(root, 'src', 'cmp-a.tsx')]: `
+        import { MyEnum } from './my-enum';
+        @Component({ tag: 'cmp-a' }) export class CmpA {
+          constructor() {
+            console.log(MyEnum.A, MyEnum.B, MyEnum.C);
+          }
+        }
+      `
+    });
+    await c.fs.commit();
+
+    const r = await c.build();
+    expect(r.diagnostics).toEqual([]);
+
+    const content = await c.fs.readFile(path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'));
+    expect(content).toContain('console.log(1,2,3)');
   });
 
 
   it('should rebuild transpile for deleted directory', async () => {
     c.config.watch = true;
     await c.fs.writeFiles({
-      '/src/cmp-a.tsx': `@Component({ tag: 'cmp-a' }) export class CmpA {}`,
-      '/src/some-dir/cmp-b.tsx': `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
-      '/src/some-dir/cmp-c.tsx': `@Component({ tag: 'cmp-c' }) export class CmpC {}`
+      [path.join(root, 'src', 'cmp-a.tsx')]: `@Component({ tag: 'cmp-a' }) export class CmpA {}`,
+      [path.join(root, 'src', 'some-dir', 'cmp-b.tsx')]: `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
+      [path.join(root, 'src', 'some-dir', 'cmp-c.tsx')]: `@Component({ tag: 'cmp-c' }) export class CmpC {}`
     });
     await c.fs.commit();
 
@@ -30,69 +54,73 @@ describe('transpile', () => {
     expect(r.diagnostics).toEqual([]);
 
     // create a rebuild listener
-    const rebuildListener = c.once('rebuild');
+    const rebuildListener = c.once('buildFinish');
 
-    await c.fs.remove('/src/some-dir');
+    await c.fs.remove(path.join(root, 'src', 'some-dir'));
     await c.fs.commit();
 
     // kick off a rebuild
-    c.trigger('dirDelete', '/src/some-dir');
+    c.trigger('dirDelete', path.join(root, 'src', 'some-dir'));
 
     // wait for the rebuild to finish
     // get the rebuild results
     r = await rebuildListener;
     expect(r.diagnostics).toEqual([]);
 
-    expect(wroteFile(r, '/www/build/app/cmp-a.js')).toBe(false);
-    expect(wroteFile(r, '/www/build/app/cmp-b.js')).toBe(false);
-    expect(wroteFile(r, '/www/build/app/cmp-c.js')).toBe(false);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'))).toBe(false);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-b.entry.js'))).toBe(false);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-c.entry.js'))).toBe(false);
 
+    expect(r.entries[0].components).toHaveLength(1);
     expect(r.entries[0].components[0].tag).toEqual('cmp-a');
   });
 
   it('should rebuild transpile for added directory', async () => {
-    c.config.bundles = [ { components: ['cmp-a'] } ];
     c.config.watch = true;
     await c.fs.writeFiles({
-      '/src/cmp-a.tsx': `@Component({ tag: 'cmp-a' }) export class CmpA {}`
+      [path.join(root, 'src', 'cmp-a.tsx')]: `@Component({ tag: 'cmp-a' }) export class CmpA {}`
     }, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off the initial build, wait for it to finish
     let r = await c.build();
     expect(r.diagnostics).toEqual([]);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'))).toBe(true);
 
     // create a rebuild listener
-    const rebuildListener = c.once('rebuild');
+    const rebuildListener = c.once('buildFinish');
 
     // add directory
     await c.fs.writeFiles({
-      '/src/new-dir/cmp-b.tsx': `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
-      '/src/new-dir/cmp-c.tsx': `@Component({ tag: 'cmp-c' }) export class CmpC {}`
+      [path.join(root, 'src', 'new-dir', 'cmp-b.tsx')]: `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
+      [path.join(root, 'src', 'new-dir', 'cmp-c.tsx')]: `@Component({ tag: 'cmp-c' }) export class CmpC {}`
     }, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off a rebuild
-    c.trigger('dirAdd', '/src/new-dir');
+    c.trigger('dirAdd', path.join(root, 'src', 'new-dir'));
 
     // wait for the rebuild to finish
     // get the rebuild results
     r = await rebuildListener;
     expect(r.diagnostics).toEqual([]);
 
-    expect(wroteFile(r, '/www/build/app/cmp-a.js')).toBe(false);
-    expect(wroteFile(r, '/www/build/app/cmp-b.js')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/cmp-c.js')).toBe(true);
+    expect(r.filesAdded).toContain(normalizePath(path.join(root, 'src', 'new-dir', 'cmp-b.tsx')));
+    expect(r.filesAdded).toContain(normalizePath(path.join(root, 'src', 'new-dir', 'cmp-c.tsx')));
+
+    expect(r.transpileBuildCount).toBe(2);
+    expect(wroteFile(r, normalizePath(path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js')))).toBe(false);
+    expect(wroteFile(r, normalizePath(path.join(root, 'www', 'build', 'app', 'cmp-b.entry.js')))).toBe(true);
+    expect(wroteFile(r, normalizePath(path.join(root, 'www', 'build', 'app', 'cmp-c.entry.js')))).toBe(true);
     expect(r.entries[0].components[0].tag).toEqual('cmp-a');
     expect(r.entries[1].components[0].tag).toEqual('cmp-b');
     expect(r.entries[2].components[0].tag).toEqual('cmp-c');
-    expect(r.hasChangedJsText).toBe(true);
   });
 
   it('should rebuild transpile for changed typescript file', async () => {
     c.config.bundles = [ { components: ['cmp-a'] } ];
     c.config.watch = true;
-    await c.fs.writeFile('/src/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA {}`, { clearFileCache: true });
+    await c.fs.writeFile(path.join(root, 'src', 'cmp-a.tsx'), `@Component({ tag: 'cmp-a' }) export class CmpA {}`, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off the initial build, wait for it to finish
@@ -100,30 +128,33 @@ describe('transpile', () => {
     expect(r.diagnostics).toEqual([]);
 
     // create a rebuild listener
-    const rebuildListener = c.once('rebuild');
+    const rebuildListener = c.once('buildFinish');
 
     // write an actual change
-    await c.fs.writeFile('/src/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA { constructor() { console.log('changed!!'); } }`, { clearFileCache: true });
+    await c.fs.writeFile(path.join(root, 'src', 'cmp-a.tsx'), `@Component({ tag: 'cmp-a' }) export class CmpA { constructor() { console.log('changed!!'); } }`, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off a rebuild
-    c.trigger('fileUpdate', '/src/cmp-a.tsx');
+    c.trigger('fileUpdate', path.join(root, 'src', 'cmp-a.tsx'));
 
     // wait for the rebuild to finish
     // get the rebuild results
     r = await rebuildListener;
     expect(r.diagnostics).toEqual([]);
+    expect(r.filesChanged).toContain(normalizePath(path.join(root, 'src', 'cmp-a.tsx')));
 
-    expect(wroteFile(r, '/www/build/app/cmp-a.js')).toBe(true);
+    expect(r.buildId).toBe(1);
+    const newJs = await c.fs.readFile(path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'));
+    expect(newJs).toContain('console.log');
     expect(r.entries[0].components[0].tag).toEqual('cmp-a');
     expect(r.transpileBuildCount).toBe(1);
-    expect(r.hasChangedJsText).toBe(true);
   });
 
-  it('should not rebuild transpile for unchanged typescript file', async () => {
+  it('should not transpile for unchanged typescript file', async () => {
     c.config.bundles = [ { components: ['cmp-a'] } ];
     c.config.watch = true;
-    await c.fs.writeFile('/src/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA {}`, { clearFileCache: true });
+    await c.fs.writeFile(path.join(root, 'src', 'cmp-a.tsx'), `@Component({ tag: 'cmp-a', styleUrl: 'cmp-a.css' }) export class CmpA {}`, { clearFileCache: true });
+    await c.fs.writeFile(path.join(root, 'src', 'cmp-a.css'), `body { color: red; }`, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off the build, wait for it to finish
@@ -135,34 +166,41 @@ describe('transpile', () => {
     expect(r.isRebuild).toBe(false);
 
     // create a rebuild listener
-    const rebuildListener = c.once('rebuild');
+    const rebuildListener = c.once('buildFinish');
 
     // write the same darn thing, no actual change
-    await c.fs.writeFile('/src/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA {}`, { clearFileCache: true });
+    await c.fs.writeFile(path.join(root, 'src', 'cmp-a.css'), `body { color: blue; }`, { clearFileCache: true });
     await c.fs.commit();
 
     // kick off a rebuild
-    c.trigger('fileUpdate', '/src/cmp-a.tsx');
+    c.trigger('fileUpdate', path.join(root, 'src', 'cmp-a.css'));
+    c.trigger('fileUpdate', path.join(root, 'src', 'cmp-a.tsx'));
 
     // wait for the rebuild to finish
     // get the rebuild results
     r = await rebuildListener;
     expect(r.diagnostics).toEqual([]);
+
+    expect(r.filesChanged).toContain(normalizePath(path.join(root, 'src', 'cmp-a.css')));
+    expect(r.filesChanged).toContain(normalizePath(path.join(root, 'src', 'cmp-a.tsx')));
+
     expect(r.buildId).toBe(1);
-    expect(r.isRebuild).toBe(true);
-    expect(r.entries[0].components[0].tag).toEqual('cmp-a');
-    expect(r.transpileBuildCount).toBe(1);
-    expect(r.hasChangedJsText).toBe(false);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'))).toBe(true);
+    const newJs = await c.fs.readFile(path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'));
+    expect(newJs).not.toContain('@stencil/core');
+    expect(r.transpileBuildCount).toBe(0);
+    expect(r.styleBuildCount).toBe(1);
   });
 
   it('should transpile with core and without typescript errors', async () => {
     // this one takes a bit longer
     jest.setTimeout(20 * 1000);
 
-    const nodeModulesDir = path.resolve(__dirname, '../../../../node_modules');
-    const distDir = path.resolve(__dirname, '../../../../dist');
+    const nodeModulesDir = path.resolve(path.join(__dirname, '..', '..', '..', '..', 'node_modules'));
+    const distDir = path.resolve(path.join(__dirname, '..', '..', '..', '..', 'dist'));
+    const normalizedNodeModulesDir = normalizePath(nodeModulesDir);
+    const normalizedDistDir = normalizePath(distDir);
 
-    c.config.suppressTypeScriptErrors = false;
     c.config.buildAppCore = true;
 
     // typescript needs real node modules and stencil dist files
@@ -171,7 +209,7 @@ describe('transpile', () => {
     const originalStatSync = c.fs.statSync.bind(c.fs);
     c.fs.readFileSync = (filePath) => {
       filePath = normalizePath(filePath);
-      if (filePath.indexOf(nodeModulesDir) === 0 || filePath.indexOf(distDir) === 0) {
+      if (filePath.indexOf(normalizedNodeModulesDir) === 0 || filePath.indexOf(normalizedDistDir) === 0) {
         return fs.readFileSync(filePath).toString();
       }
 
@@ -179,30 +217,33 @@ describe('transpile', () => {
     };
     c.fs.statSync = (itemPath) => {
       itemPath = normalizePath(itemPath);
-      if (itemPath.indexOf(nodeModulesDir) === 0 || itemPath.indexOf(distDir) === 0) {
+      if (itemPath.indexOf(normalizedNodeModulesDir) === 0 || itemPath.indexOf(normalizedDistDir) === 0) {
         return fs.statSync(itemPath);
       }
 
       return originalStatSync(itemPath);
     };
 
+    const stencilPath =
+      path.join(
+        path.relative(nodeModulesDir, distDir),
+        'index.d.ts'
+      );
+
     const tsConfig = JSON.stringify({
       compilerOptions: {
         baseUrl: nodeModulesDir,
         paths: {
-          '@stencil/core': [path.join(
-            path.relative(nodeModulesDir, distDir),
-            'index.d.ts'
-          )]
+          '@stencil/core': [stencilPath]
         }
       }
     });
 
     await c.fs.writeFiles({
-      '/tsconfig.json': tsConfig,
-      '/src/cmp-a.tsx': `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-a' }) export class CmpA {}`,
-      '/src/some-dir/cmp-b.tsx': `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-b' }) export class CmpB {}`,
-      '/src/some-dir/cmp-c.tsx': `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-c' }) export class CmpC {}`
+      [path.join(root, 'tsconfig.json')]: tsConfig,
+      [path.join(root, 'src', 'cmp-a.tsx')]: `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-a' }) export class CmpA {}`,
+      [path.join(root, 'src', 'some-dir', 'cmp-b.tsx')]: `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-b' }) export class CmpB {}`,
+      [path.join(root, 'src', 'some-dir', 'cmp-c.tsx')]: `import { Component } from '@stencil/core';\n@Component({ tag: 'cmp-c' }) export class CmpC {}`
     });
     await c.fs.commit();
 
@@ -210,12 +251,12 @@ describe('transpile', () => {
     const r = await c.build();
     expect(r.diagnostics).toEqual([]);
 
-    expect(wroteFile(r, '/www/build/app.js')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/app.core.js')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/app.registry.json')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/cmp-a.js')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/cmp-b.js')).toBe(true);
-    expect(wroteFile(r, '/www/build/app/cmp-c.js')).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app.js'))).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'app.core.js'))).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'app.registry.json'))).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'))).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-b.entry.js'))).toBe(true);
+    expect(wroteFile(r, path.join(root, 'www', 'build', 'app', 'cmp-c.entry.js'))).toBe(true);
 
     expect(r.entries[0].components[0].tag).toEqual('cmp-a');
   });

@@ -1,65 +1,134 @@
-import * as d from './index';
+import * as d from '.';
 
+export interface RollupResultModule {
+  id: string;
+}
+export interface RollupResults {
+  modules: RollupResultModule[];
+}
 
 export interface BuildCtx {
-  graphData?: GraphData;
-  componentRefs?: d.PotentialComponentRef[];
-  moduleGraphs?: d.ModuleGraph[];
-  collections?: d.Collection[];
+  abort(): Promise<BuildResults>;
+  appFileBuildCount: number;
   buildId: number;
-  requiresFullBuild: boolean;
+  buildResults: d.BuildResults;
+  buildMessages: string[];
+  timestamp: string;
+  bundleBuildCount: number;
+  collections: d.Collection[];
+  components: string[];
+  createTimeSpan(msg: string, debug?: boolean): d.LoggerTimeSpan;
+  data: any;
+  debug: (msg: string) => void;
   diagnostics: d.Diagnostic[];
+  dirsAdded: string[];
+  dirsDeleted: string[];
   entryModules: d.EntryModule[];
   entryPoints: d.EntryPoint[];
-  global?: d.ModuleFile;
-  transpileBuildCount: number;
-  bundleBuildCount: number;
-  appFileBuildCount: number;
-  indexBuildCount: number;
-  components: string[];
-  aborted: boolean;
-  timeSpan: d.LoggerTimeSpan;
-  startTime: number;
-  hasChangedJsText: boolean;
-  filesWritten: string[];
-  filesDeleted: string[];
-  dirsDeleted: string[];
-  dirsAdded: string[];
-  filesChanged: string[];
-  filesUpdated: string[];
   filesAdded: string[];
-  shouldAbort?(): boolean;
-  data?: any;
-  hasSlot?: boolean;
-  hasSvg?: boolean;
-  finish?(): Promise<BuildResults>;
+  filesChanged: string[];
+  filesDeleted: string[];
+  filesUpdated: string[];
+  filesWritten: string[];
+  finish(): Promise<BuildResults>;
+  global: d.ModuleFile;
+  graphData: GraphData;
+  hasConfigChanges: boolean;
+  hasCopyChanges: boolean;
+  hasFinished: boolean;
+  hasIndexHtmlChanges: boolean;
+  hasPrintedResults: boolean;
+  hasServiceWorkerChanges: boolean;
+  hasScriptChanges: boolean;
+  hasSlot: boolean;
+  hasStyleChanges: boolean;
+  hasSvg: boolean;
+  indexBuildCount: number;
+  isActiveBuild: boolean;
+  isRebuild: boolean;
+  requiresFullBuild: boolean;
+  scriptsAdded: string[];
+  scriptsDeleted: string[];
+  hasError: boolean;
+  hasWarning: boolean;
+  rollupResults?: RollupResults;
+  startTime: number;
+  styleBuildCount: number;
+  stylesUpdated: BuildStyleUpdate[];
+  timeSpan: d.LoggerTimeSpan;
+  transpileBuildCount: number;
+  validateTypesHandler?: (results: d.ValidateTypesResults) => Promise<void>;
+  validateTypesPromise?: Promise<d.ValidateTypesResults>;
+  validateTypesBuild?(): Promise<void>;
+}
+
+
+export interface BuildStyleUpdate {
+  styleTag: string;
+  styleText: string;
+  styleMode: string;
+  isScoped: boolean;
 }
 
 
 export type GraphData = Map<string, string[]>;
 
 
+export interface BuildLog {
+  messages: string[];
+}
+
+
 export interface BuildResults {
   buildId: number;
-  diagnostics: d.Diagnostic[];
-  hasError: boolean;
-  aborted?: boolean;
-  duration: number;
-  isRebuild: boolean;
-  transpileBuildCount: number;
   bundleBuildCount: number;
-  hasChangedJsText: boolean;
+  components: BuildComponent[];
+  diagnostics: d.Diagnostic[];
   dirsAdded: string[];
   dirsDeleted: string[];
-  filesWritten: string[];
-  filesChanged: string[];
-  filesUpdated: string[];
-  filesAdded: string[];
-  filesDeleted: string[];
-  components: BuildComponent[];
+  duration: number;
   entries: BuildEntry[];
+  filesAdded: string[];
+  filesChanged: string[];
+  filesDeleted: string[];
+  filesUpdated: string[];
+  filesWritten: string[];
+  hasError: boolean;
+  hasSuccessfulBuild: boolean;
   hasSlot: boolean;
   hasSvg: boolean;
+  hmr?: HotModuleReplacement;
+  isRebuild: boolean;
+  styleBuildCount: number;
+  transpileBuildCount: number;
+}
+
+
+export interface HotModuleReplacement {
+  componentsUpdated?: string[];
+  excludeHmr?: string[];
+  externalStylesUpdated?: string[];
+  imagesUpdated?: string[];
+  indexHtmlUpdated?: boolean;
+  inlineStylesUpdated?: HmrStyleUpdate[];
+  scriptsAdded?: string[];
+  scriptsDeleted?: string[];
+  serviceWorkerUpdated?: boolean;
+  versionId?: string;
+}
+
+
+export interface HmrStyleUpdate {
+  styleTag: string;
+  styleText: string;
+  styleMode: string;
+  isScoped: boolean;
+}
+
+
+export interface BuildNoChangeResults {
+  buildId: number;
+  noChange: boolean;
 }
 
 
@@ -84,6 +153,7 @@ export interface BuildStats {
   };
   components: BuildComponent[];
   entries: BuildEntry[];
+  rollupResults: RollupResults;
   sourceGraph: BuildSourceGraph;
   collections: {
     name: string;
@@ -105,8 +175,8 @@ export interface BuildEntry {
 
 export interface BuildBundle {
   fileName: string;
-  size: number;
   outputs: string[];
+  size?: number;
   mode?: string;
   scopedStyles?: boolean;
   target?: string;
@@ -130,23 +200,41 @@ export interface FilesMap {
 }
 
 
-export type CompilerEventName = 'fileUpdate' | 'fileAdd' | 'fileDelete' | 'dirAdd' | 'dirDelete' | 'build' | 'rebuild';
-
-export interface TranspileResults {
-  code?: string;
-  diagnostics?: d.Diagnostic[];
-  cmpMeta?: d.ComponentMeta;
-}
+export type CompilerEventName = 'fileUpdate' | 'fileAdd' | 'fileDelete' | 'dirAdd' | 'dirDelete' | 'fsChange' | 'buildFinish' | 'buildNoChange' | 'buildLog';
 
 
 export interface JSModuleList {
-  [key: string]: { code: string };
+  [key: string]: {
+    code: string,
+    imports?: string[],
+    exports?: string[],
+    modules?: {
+      [modulePath: string]: {
+        renderedExports: string[],
+        removedExports: string[],
+        renderedLength: number,
+        originalLength: number
+      }
+    }
+  };
 }
 
-export interface JSModuleMap {
+export interface JSModuleFormats {
   esm?: JSModuleList;
-  es5?: JSModuleList;
+  amd?: JSModuleList;
+}
+
+export interface DerivedChunk {
+  entryKey: string;
+  filename: string;
+  code: string;
+}
+
+export interface DerivedModule {
+  list: DerivedChunk[];
+  sourceTarget: d.SourceTarget;
+  isBrowser: boolean;
 }
 
 
-export type SourceTarget = 'es5' | 'es2015';
+export type SourceTarget = 'es5' | 'es2017';

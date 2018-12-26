@@ -8,23 +8,28 @@
  */
 
 import * as d from '../../declarations';
+import { FunctionalUtilities } from '../../declarations';
 
 const stack: any[] = [];
 
 
-export function h(nodeName: string | d.FunctionalComponent<d.PropsType>, vnodeData: d.PropsType, child?: d.ChildType): d.VNode;
-export function h(nodeName: string | d.FunctionalComponent<d.PropsType>, vnodeData: d.PropsType, ...children: d.ChildType[]): d.VNode;
-export function h(nodeName: any, vnodeData: any, child?: any) {
+export function h(nodeName: string | d.FunctionalComponent, vnodeData: d.PropsType, child?: d.ChildType): d.VNode;
+export function h(nodeName: string | d.FunctionalComponent, vnodeData: d.PropsType, ...children: d.ChildType[]): d.VNode;
+export function h(nodeName: any, vnodeData: any) {
   let children: any[] = null;
   let lastSimple = false;
   let simple = false;
+  let i = arguments.length;
+  let vkey: any;
+  let vname: string;
 
-  for (var i = arguments.length; i-- > 2;) {
+  for (; i-- > 2;) {
     stack.push(arguments[i]);
   }
 
   while (stack.length > 0) {
-    if ((child = stack.pop()) && child.pop !== undefined) {
+    let child = stack.pop();
+    if (child && child.pop !== undefined) {
       for (i = child.length; i--;) {
         stack.push(child[i]);
       }
@@ -45,7 +50,7 @@ export function h(nodeName: any, vnodeData: any, child?: any) {
       }
 
       if (simple && lastSimple) {
-        (<d.VNode>children[children.length - 1]).vtext += child;
+        (children[children.length - 1] as d.VNode).vtext += child;
 
       } else if (children === null) {
         children = [simple ? { vtext: child } as d.VNode : child];
@@ -57,8 +62,6 @@ export function h(nodeName: any, vnodeData: any, child?: any) {
       lastSimple = simple;
     }
   }
-
-  let vkey: any;
 
   if (vnodeData != null) {
     // normalize class / classname attributes
@@ -80,14 +83,15 @@ export function h(nodeName: any, vnodeData: any, child?: any) {
     if (vnodeData.key != null) {
       vkey = vnodeData.key;
     }
+
+    if (vnodeData.name != null) {
+      vname = vnodeData.name;
+    }
   }
 
   if (typeof nodeName === 'function') {
     // nodeName is a functional component
-    return (nodeName as d.FunctionalComponent<any>)({
-      ...vnodeData,
-      children: children
-    });
+    return (nodeName as d.FunctionalComponent<any>)(vnodeData, children || [], utils);
   }
 
   return {
@@ -96,7 +100,14 @@ export function h(nodeName: any, vnodeData: any, child?: any) {
     vtext: undefined,
     vattrs: vnodeData,
     vkey: vkey,
+    vname: vname,
     elm: undefined,
     ishost: false
   } as d.VNode;
 }
+
+
+const utils: FunctionalUtilities = {
+  'forEach': (children, cb) => children.forEach(cb),
+  'map': (children, cb) => children.map(cb)
+};

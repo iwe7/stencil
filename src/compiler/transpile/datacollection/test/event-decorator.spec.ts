@@ -28,7 +28,7 @@ describe('event decorator', () => {
   it('simple decorator', () => {
     let response;
     const sourceFilePath = path.resolve(__dirname, './fixtures/event-simple');
-    const metadata = gatherMetadata(sourceFilePath, (checker, classNode, sourceFile) => {
+    gatherMetadata(sourceFilePath, (checker, classNode, sourceFile) => {
       response = getEventDecoratorMeta([], checker, classNode, sourceFile);
     });
 
@@ -42,6 +42,10 @@ describe('event decorator', () => {
         jsdoc: {
           documentation: 'Create method for something',
           name: 'ionGestureMove',
+          tags: [{
+            name: 'param',
+            text: 'opts action sheet options'
+          }],
           type: 'EventEmitter<any>'
         }
       },
@@ -54,6 +58,7 @@ describe('event decorator', () => {
         jsdoc: {
           documentation: '',
           name: 'event-emitted',
+          tags: [],
           type: 'EventEmitter<any>'
         }
       }
@@ -63,7 +68,7 @@ describe('event decorator', () => {
   it('simple decorator', () => {
     let response;
     const sourceFilePath = path.resolve(__dirname, './fixtures/event-example');
-    const metadata = gatherMetadata(sourceFilePath, (checker, classNode, sourceFile) => {
+    gatherMetadata(sourceFilePath, (checker, classNode, sourceFile) => {
       response = getEventDecoratorMeta([], checker, classNode, sourceFile);
     });
 
@@ -77,6 +82,7 @@ describe('event decorator', () => {
         jsdoc: {
           documentation: 'Create event for something',
           name: 'my-event-name',
+          tags: [],
           type: 'EventEmitter<any>'
         }
       }

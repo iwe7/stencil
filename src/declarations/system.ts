@@ -1,65 +1,110 @@
-import * as d from './index';
+import * as d from '.';
 
 
 export interface StencilSystem {
+  cancelWorkerTasks?(): void;
   compiler?: {
     name: string;
     version: string;
     typescriptVersion?: string;
     runtime?: string;
+    packageDir?: string;
   };
-  createDom?(): {
-    parse(hydrateOptions: d.OutputTargetHydrate): Window;
-    serialize(): string;
-    destroy(): void;
-  };
-  createWatcher?(events: d.BuildEvents, paths: string, opts?: any): d.FsWatcher;
-  generateContentHash?(content: string, length: number): string;
+  copy?(copyTasks: d.CopyTask[]): Promise<d.CopyResults>;
+  createDom?(): CreateDom;
+  color?: any;
+  createFsWatcher?(events: d.BuildEvents, paths: string, opts?: any): d.FsWatcher;
+  destroy?(): void;
+  addDestroy?(fn: Function): void;
+  details?: SystemDetails;
   fs?: d.FileSystem;
+  generateContentHash?(content: string, length: number): string;
   getClientCoreFile?(opts: {staticName: string}): Promise<string>;
   glob?(pattern: string, options: {
     cwd?: string;
     nodir?: boolean;
   }): Promise<string[]>;
-  isGlob?(str: string): boolean;
-  loadConfigFile?(configPath: string): d.Config;
-  minifyCss?(input: string, opts?: any): {
+  initWorkers?(maxConcurrentWorkers: number, maxConcurrentTasksPerWorker: number): d.WorkerOptions;
+  lazyRequire?: d.LazyRequire;
+  loadConfigFile?(configPath: string, process?: any): d.Config;
+  minifyJs?(input: string, opts?: any): Promise<{
     output: string;
     sourceMap?: any;
     diagnostics?: d.Diagnostic[];
-  };
-  minifyJs?(input: string, opts?: any): {
-    output: string;
-    sourceMap?: any;
-    diagnostics?: d.Diagnostic[];
-  };
-  minimatch?(path: string, pattern: string, opts?: any): boolean;
-  resolveModule?(fromDir: string, moduleId: string): string;
+  }>;
+  open?: (url: string, opts?: any) => Promise<void>;
+  optimizeCss?(inputOpts: d.OptimizeCssInput): Promise<d.OptimizeCssOutput>;
   path?: Path;
-  platform?: string;
-  rollup?: {
-    rollup: {
-      (config: RollupInputConfig): Promise<RollupBundle>;
-    };
-    plugins: RollupPlugins;
-  };
-  semver?: {
-    gt: (a: string, b: string, loose?: boolean) => boolean;
-    gte: (a: string, b: string, loose?: boolean) => boolean;
-    lt: (a: string, b: string, loose?: boolean) => boolean;
-    lte: (a: string, b: string, loose?: boolean) => boolean;
-  };
-  tmpdir?(): string;
+  requestLatestCompilerVersion?(): Promise<string>;
+  resolveModule?(fromDir: string, moduleId: string): string;
+  rollup?: RollupInterface;
+  scopeCss?: (cssText: string, scopeId: string, hostScopeId: string, slotScopeId: string) => Promise<string>;
+  semver?: Semver;
+  storage?: Storage;
+  transpileToEs5?(cwd: string, input: string, inlineHelpers: boolean): Promise<d.TranspileResults>;
   url?: {
     parse(urlStr: string, parseQueryString?: boolean, slashesDenoteHost?: boolean): Url;
     format(url: Url): string;
     resolve(from: string, to: string): string;
   };
+  validateTypes(compilerOptions: any, emitDtsFiles: boolean, currentWorkingDir: string, collectionNames: string[], rootTsFiles: string[]): Promise<d.ValidateTypesResults>;
   vm?: {
     createContext(ctx: d.CompilerCtx, outputTarget: d.OutputTargetWww, sandbox?: any): any;
     runInContext(code: string, contextifiedSandbox: any, options?: any): any;
   };
-  workbox?: Workbox;
+}
+
+
+export interface RollupInterface {
+  rollup: {
+    (config: any): Promise<any>;
+  };
+  plugins: {
+    nodeResolve(opts: any): any;
+    emptyJsResolver(): any;
+    commonjs(opts: any): any;
+  };
+}
+
+
+export interface Semver {
+  lt(v1: string, v2: string): boolean;
+  lte(v1: string, v2: string): boolean;
+  gt(v1: string, v2: string): boolean;
+  gte(v1: string, v2: string): boolean;
+  prerelease(v: string): string[] | null;
+  satisfies(version: string, range: string): boolean;
+}
+
+
+export interface LazyRequire {
+  ensure(logger: d.Logger, fromDir: string, moduleIds: string[]): Promise<void>;
+  require(moduleId: string): any;
+  getModulePath(moduleId: string): string;
+}
+
+
+export interface SystemDetails {
+  cpuModel: string;
+  cpus: number;
+  platform: string;
+  runtime: string;
+  runtimeVersion: string;
+  release: string;
+  tmpDir: string;
+}
+
+
+export interface Storage {
+  get(key: string): Promise<any>;
+  set(key: string, value: any): Promise<void>;
+}
+
+
+export interface CreateDom {
+  parse(hydrateOptions: d.OutputTargetHydrate): Window;
+  serialize(): string;
+  destroy(): void;
 }
 
 
@@ -76,53 +121,34 @@ export interface Path {
 }
 
 
-
-export interface RollupInputConfig {
-  entry?: any;
-  input?: string;
-  cache?: any;
-  external?: Function;
-  plugins?: any[];
-  onwarn?: Function;
-}
-
-export interface RollupBundle {
-  generate: {(config: RollupGenerateConfig): Promise<RollupGenerateResults>};
-}
-
-
-export interface RollupGenerateConfig {
-  format: 'es' | 'cjs';
-  intro?: string;
-  outro?: string;
-  banner?: string;
-  footer?: string;
-  exports?: string;
-  external?: string[];
-  globals?: {[key: string]: any};
-  moduleName?: string;
-  strict?: boolean;
-}
-
-
-export interface RollupGenerateResults {
-  code: string;
-  map: any;
-}
-
-
-export interface RollupPlugins {
-  [pluginName: string]: any;
-}
-
-
 export interface PackageJsonData {
   name?: string;
   version?: string;
   main?: string;
+  bin?: {[key: string]: string};
+  browser?: string;
+  module?: string;
+  'jsnext:main'?: string;
+  unpkg?: string;
   collection?: string;
   types?: string;
   files?: string[];
+  ['dist-tags']: {
+    latest: string;
+  };
+  dependencies?: {
+    [moduleId: string]: string;
+  };
+  devDependencies?: {
+    [moduleId: string]: string;
+  };
+  lazyDependencies?: {
+    [moduleId: string]: string;
+  };
+  repository?: {
+    type?: string;
+    url?: string;
+  };
 }
 
 

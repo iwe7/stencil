@@ -10,6 +10,10 @@ export function validatePrerender(config: d.Config, outputTarget: d.OutputTarget
     // forcing a prerender build
     defaults = FULL_PRERENDER_DEFAULTS;
 
+  } else if (config.flags.ssr) {
+    // forcing a ssr build
+    defaults = SSR_DEFAULTS;
+
   } else {
     // not forcing a prerender build
 
@@ -60,6 +64,8 @@ export function validatePrerender(config: d.Config, outputTarget: d.OutputTarget
 
 
 const FULL_PRERENDER_DEFAULTS: d.OutputTargetWww = {
+  type: 'www',
+
   baseUrl: '/',
   canonicalLink: true,
   collapseWhitespace: true,
@@ -75,7 +81,27 @@ const FULL_PRERENDER_DEFAULTS: d.OutputTargetWww = {
 };
 
 
+const SSR_DEFAULTS: d.OutputTargetWww = {
+  type: 'www',
+
+  baseUrl: '/',
+  canonicalLink: true,
+  collapseWhitespace: true,
+  hydrateComponents: true,
+  inlineStyles: true,
+  inlineLoaderScript: true,
+  inlineAssetsMaxSize: 0,
+  prerenderUrlCrawl: false,
+  prerenderPathHash: false,
+  prerenderPathQuery: false,
+  prerenderMaxConcurrent: 0,
+  removeUnusedStyles: false
+};
+
+
 const PROD_NON_HYDRATE_DEFAULTS: d.OutputTargetWww = {
+  type: 'www',
+
   baseUrl: '/',
   canonicalLink: false,
   collapseWhitespace: true,
@@ -92,6 +118,8 @@ const PROD_NON_HYDRATE_DEFAULTS: d.OutputTargetWww = {
 
 
 const DEV_MODE_DEFAULTS: d.OutputTargetWww = {
+  type: 'www',
+
   baseUrl: '/',
   canonicalLink: false,
   collapseWhitespace: false,

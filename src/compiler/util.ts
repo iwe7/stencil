@@ -1,6 +1,16 @@
+import * as d from '../declarations';
 import { BANNER } from '../util/constants';
-import { CompilerCtx, Config, Diagnostic, SourceTarget } from '../declarations';
 
+
+export function hasServiceWorkerChanges(config: d.Config, buildCtx: d.BuildCtx) {
+  if (config.devMode && !config.flags.serviceWorker) {
+    return false;
+  }
+  const wwwServiceOutputs = (config.outputTargets as d.OutputTargetWww[]).filter(o => o.type === 'www' && o.serviceWorker && o.serviceWorker.swSrc);
+  return wwwServiceOutputs.some(outputTarget => {
+    return buildCtx.filesChanged.some(fileChanged => config.sys.path.basename(fileChanged).toLowerCase() === config.sys.path.basename(outputTarget.serviceWorker.swSrc).toLowerCase());
+  });
+}
 
 /**
  * Test if a file is a typescript source file, such as .ts or .tsx.
@@ -70,69 +80,28 @@ export function isWebDevFile(filePath: string) {
 const WEB_DEV_EXT = ['js', 'jsx', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'styl', 'pcss'];
 
 
-export async function minifyJs(config: Config, compilerCtx: CompilerCtx, jsText: string, sourceTarget: SourceTarget, preamble: boolean) {
-  const opts: any = { output: {}, compress: {}, mangle: true };
-
-  if (sourceTarget === 'es5') {
-    opts.ecma = 5;
-    opts.output.ecma = 5;
-    opts.compress.ecma = 5;
-    opts.compress.arrows = false;
-    opts.output.beautify = false;
-
-  } else {
-    opts.ecma = 6;
-    opts.output.ecma = 6;
-    opts.compress.ecma = 6;
-    opts.toplevel = true;
-    opts.compress.arrows = true;
-    opts.output.beautify = false;
-  }
-
-  if (config.logLevel === 'debug') {
-    opts.mangle = {};
-    opts.mangle.keep_fnames = true;
-    opts.compress.drop_console = false;
-    opts.compress.drop_debugger = false;
-    opts.output.beautify = true;
-    opts.output.bracketize = true;
-    opts.output.indent_level = 2;
-    opts.output.comments = 'all';
-    opts.output.preserve_line = true;
-  } else {
-    opts.compress.pure_funcs = ['assert', 'console.debug'];
-  }
-
-  opts.compress.passes = 2;
-
-  if (preamble) {
-    opts.output.preamble = generatePreamble(config);
-  }
-
-  const cacheKey = compilerCtx.cache.createKey('minifyJs', opts, jsText);
-  const cachedContent = await compilerCtx.cache.get(cacheKey);
-  if (cachedContent != null) {
-    return {
-      output: cachedContent,
-      diagnostics: []
-    };
-  }
-
-  const r = config.sys.minifyJs(jsText, opts);
-  if (r && r.diagnostics.length === 0 && typeof r.output === 'string') {
-    await compilerCtx.cache.put(cacheKey, r.output);
-  }
-  return r;
-}
-
-export function generatePreamble(config: Config) {
+export function generatePreamble(config: d.Config, opts: { prefix?: string; suffix?: string, defaultBanner?: boolean } = {}) {
   let preamble: string[] = [];
 
   if (config.preamble) {
     preamble = config.preamble.split('\n');
   }
 
-  preamble.push(BANNER);
+  if (typeof opts.prefix === 'string') {
+    opts.prefix.split('\n').forEach(c => {
+      preamble.push(c);
+    });
+  }
+
+  if (opts.defaultBanner === true)  {
+    preamble.push(BANNER);
+  }
+
+  if (typeof opts.suffix === 'string') {
+    opts.suffix.split('\n').forEach(c => {
+      preamble.push(c);
+    });
+  }
 
   if (preamble.length > 1) {
     preamble = preamble.map(l => ` * ${l}`);
@@ -143,29 +112,33 @@ export function generatePreamble(config: Config) {
     return preamble.join('\n');
   }
 
-  return `/*! ${BANNER} */`;
+
+  if (opts.defaultBanner === true)  {
+    return `/*! ${BANNER} */`;
+  }
+  return '';
 }
 
 
-export function buildError(diagnostics: Diagnostic[]) {
-  const d: Diagnostic = {
+export function buildError(diagnostics: d.Diagnostic[]) {
+  const diagnostic: d.Diagnostic = {
     level: 'error',
     type: 'build',
-    header: 'build error',
+    header: 'Build Error',
     messageText: 'build error',
     relFilePath: null,
     absFilePath: null,
     lines: []
   };
 
-  diagnostics.push(d);
+  diagnostics.push(diagnostic);
 
-  return d;
+  return diagnostic;
 }
 
 
-export function buildWarn(diagnostics: Diagnostic[]) {
-  const d: Diagnostic = {
+export function buildWarn(diagnostics: d.Diagnostic[]) {
+  const diagnostic: d.Diagnostic = {
     level: 'warn',
     type: 'build',
     header: 'build warn',
@@ -175,52 +148,69 @@ export function buildWarn(diagnostics: Diagnostic[]) {
     lines: []
   };
 
-  diagnostics.push(d);
+  diagnostics.push(diagnostic);
 
-  return d;
+  return diagnostic;
 }
 
 
-export function catchError(diagnostics: Diagnostic[], err: Error) {
-  const d: Diagnostic = {
+export function catchError(diagnostics: d.Diagnostic[], err: Error, msg?: string) {
+  const diagnostic: d.Diagnostic = {
     level: 'error',
     type: 'build',
-    header: 'build error',
+    header: 'Build Error',
     messageText: 'build error',
     relFilePath: null,
     absFilePath: null,
     lines: []
   };
 
-  if (err) {
+  if (typeof msg === 'string') {
+    diagnostic.messageText = msg;
+
+  } else if (err) {
     if (err.stack) {
-      d.messageText = err.stack.toString();
+      diagnostic.messageText = err.stack.toString();
 
     } else {
       if (err.message) {
-        d.messageText = err.message.toString();
+        diagnostic.messageText = err.message.toString();
 
       } else {
-        d.messageText = err.toString();
+        diagnostic.messageText = err.toString();
       }
     }
   }
 
-  diagnostics.push(d);
-
-  return d;
+  if (diagnostics && !shouldIgnoreError(diagnostic.messageText)) {
+    diagnostics.push(diagnostic);
+  }
 }
 
 
-export function hasError(diagnostics: Diagnostic[]): boolean {
+export const TASK_CANCELED_MSG = `task canceled`;
+
+
+export function shouldIgnoreError(msg: any) {
+  return (msg === TASK_CANCELED_MSG);
+}
+
+
+export function hasError(diagnostics: d.Diagnostic[]): boolean {
   if (!diagnostics) {
     return false;
   }
   return diagnostics.some(d => d.level === 'error' && d.type !== 'runtime');
 }
 
+export function hasWarning(diagnostics: d.Diagnostic[]): boolean {
+  if (!diagnostics) {
+    return false;
+  }
+  return diagnostics.some(d => d.level === 'warn');
+}
 
-export function pathJoin(config: Config, ...paths: string[]) {
+export function pathJoin(config: d.Config, ...paths: string[]) {
   return normalizePath(config.sys.path.join.apply(config.sys.path, paths));
 }
 

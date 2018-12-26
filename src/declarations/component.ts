@@ -1,46 +1,10 @@
-import * as d from './index';
-
-
-export interface ComponentWillLoad {
-  /**
-   * componentWillLoad
-   */
-  componentWillLoad: () => Promise<void> | void;
-}
-
-export interface ComponentDidLoad {
-  /**
-   * componentDidLoad
-   */
-  componentDidLoad: () => void;
-}
-
-export interface ComponentWillUpdate {
-  /**
-   * componentWillUpdate
-   */
-  componentWillUpdate: () => Promise<void> | void;
-}
-
-export interface ComponentDidUpdate {
-  /**
-   * componentDidUpdate
-   */
-  componentDidUpdate: () => void;
-}
-
-export interface ComponentDidUnload {
-  /**
-   * componentDidUnload
-   */
-  componentDidUnload: () => void;
-}
-
+import * as d from '.';
 
 export interface ComponentConstructor {
   is?: string;
   properties?: ComponentConstructorProperties;
   events?: ComponentConstructorEvent[];
+  listeners?: ComponentConstructorListener[];
   host?: ComponentConstructorHost;
   style?: string;
   styleMode?: string;
@@ -57,18 +21,29 @@ export interface ComponentConstructorHost {
 export interface ComponentMeta {
   // "Meta" suffix to ensure property renaming
   tagNameMeta?: string;
-  bundleIds?: string | BundleIds;
+  bundleIds?: string | BundleIds | GetModuleFn;
   stylesMeta?: d.StylesMeta;
   membersMeta?: MembersMeta;
   eventsMeta?: EventMeta[];
   listenersMeta?: ListenMeta[];
   hostMeta?: HostMeta;
-  encapsulation?: number;
+  encapsulationMeta?: number;
   assetsDirsMeta?: AssetsMeta[];
   componentConstructor?: ComponentConstructor;
   componentClass?: string;
   dependencies?: ComponentDependencies;
-  jsdoc?: JSDoc;
+  jsdoc?: JsDoc;
+  styleDocs?: StyleDoc[];
+  hmrLoad?: () => void;
+}
+
+
+export type GetModuleFn = (opts?: GetModuleOptions) => Promise<ComponentConstructor>;
+
+
+export interface GetModuleOptions {
+  scoped?: boolean;
+  mode?: string;
 }
 
 
@@ -87,9 +62,9 @@ export interface MemberMeta {
   propType?: number;
   attribName?: string;
   attribType?: AttributeTypeInfo;
-  reflectToAttr?: boolean;
+  reflectToAttrib?: boolean;
   ctrlId?: string;
-  jsdoc?: JSDoc;
+  jsdoc?: JsDoc;
   watchCallbacks?: string[];
 }
 
@@ -105,6 +80,8 @@ export interface AttributeTypeReferences {
 
 export interface AttributeTypeInfo {
   text: string;
+  optional: boolean;
+  required: boolean;
   typeReferences?: AttributeTypeReferences;
 }
 
@@ -155,6 +132,15 @@ export interface ComponentConstructorEvent {
 }
 
 
+export interface ComponentConstructorListener {
+  name: string;
+  method: string;
+  capture?: boolean;
+  disabled?: boolean;
+  passive?: boolean;
+}
+
+
 export interface EventMeta {
   eventName: string;
   eventMethodName?: string;
@@ -162,7 +148,7 @@ export interface EventMeta {
   eventCancelable?: boolean;
   eventComposed?: boolean;
   eventType?: AttributeTypeInfo;
-  jsdoc?: JSDoc;
+  jsdoc?: JsDoc;
 }
 
 
@@ -172,41 +158,43 @@ export interface ListenMeta {
   eventCapture?: boolean;
   eventPassive?: boolean;
   eventDisabled?: boolean;
-  jsdoc?: JSDoc;
+  jsdoc?: JsDoc;
 }
 
 
-export interface JSDoc {
+export interface JsDoc {
   name: string;
   documentation: string;
   type: string;
+  tags: JSDocTagInfo[];
+  default?: string;
+  parameters?: JsDoc[];
+  returns?: {
+    type: string;
+    documentation: string;
+  };
+}
+
+export interface JSDocTagInfo {
+  name: string;
+  text?: string;
+}
+
+
+export interface StyleDoc {
+  name: string;
+  docs: string;
+  annotation: 'prop';
 }
 
 
 export type ComponentDependencies = string[];
 
 
-export interface ComponentInstance {
-  componentWillLoad?: () => Promise<void>;
-  componentDidLoad?: () => void;
-  componentWillUpdate?: () => Promise<void>;
-  componentDidUpdate?: () => void;
-  componentDidUnload?: () => void;
-
-  render?: () => any;
-  hostData?: () => d.VNodeData;
-
-  mode?: string;
-  color?: string;
-
-  [memberName: string]: any;
-}
-
-
 export abstract class ComponentModule {
-  abstract componentWillLoad?: () => Promise<void>;
+  abstract componentWillLoad?: () => Promise<void> | void;
   abstract componentDidLoad?: () => void;
-  abstract componentWillUpdate?: () => Promise<void>;
+  abstract componentWillUpdate?: () => Promise<void> | void;
   abstract componentDidUpdate?: () => void;
   abstract componentDidUnload?: () => void;
 
@@ -231,7 +219,7 @@ export interface ComponentInternalValues {
 
 
 export interface ComponentModule {
-  new(): ComponentInstance;
+  new(): d.ComponentInstance;
 }
 
 
@@ -243,11 +231,11 @@ export interface ComponentRegistry {
 
 export interface HostElement extends HTMLElement {
   // web component APIs
-  connectedCallback: () => void;
+  connectedCallback?: () => void;
   attributeChangedCallback?: (attribName: string, oldVal: string, newVal: string, namespace: string) => void;
   disconnectedCallback?: () => void;
-  host: Element;
-  forceUpdate: () => void;
+  host?: Element;
+  forceUpdate?: () => void;
 
   // "s-" prefixed properties should not be property renamed
   // and should be common between all versions of stencil
@@ -263,40 +251,52 @@ export interface HostElement extends HTMLElement {
    * Reference to the HTML Comment that's placed inside of the
    * host element's original content. This comment is used to
    * always represent where host element's light dom is.
-   * (deprecated $defaultHolder)
    */
-  ['s-cr']?: Comment;
+  ['s-cr']?: d.RenderNode;
 
   /**
-   * Active Loading:
+   * Is Active Loading:
    * Array of child host elements that are actively loading.
-   * (deprecated $activeLoading)
    */
   ['s-ld']?: HostElement[];
 
   /**
-   * Rendered:
+   * Has Rendered:
    * Set to true if this component has rendered
-   * (deprecated $rendered)
    */
   ['s-rn']?: boolean;
 
   /**
    * On Render Callbacks:
    * Array of callbacks to fire off after it has rendered.
-   * (deprecated $onRender)
    */
-  ['s-rc']: (() => void)[];
+  ['s-rc']?: (() => void)[];
+
+  /**
+   * Scope Id
+   * The scope id of this component when using scoped css encapsulation
+   * or using shadow dom but the browser doesn't support it
+   */
+  ['s-sc']?: string;
 
   /**
    * Component Initial Load:
    * The component has fully loaded, instance creatd,
    * and has rendered. Method is on the host element prototype.
-   * (deprecated $initLoad)
    */
-  ['s-init']: () => void;
+  ['s-init']?: () => void;
 
-  componentOnReady?: (cb?: (elm: HostElement) => void) => Promise<void>;
+  /**
+   * Hot Module Replacement, dev mode only
+   */
+  ['s-hmr']?: (versionId: string) => void;
+
+  /**
+   * Callback method for when HMR finishes
+   */
+  ['s-hmr-load']?: () => void;
+
+  componentOnReady?: () => Promise<this>;
   color?: string;
   mode?: string;
 }
@@ -309,39 +309,37 @@ export interface ComponentAppliedStyles {
 export type OnReadyCallback = ((elm: d.HostElement) => void);
 
 
-export interface LoadComponentRegistry {
+export type ComponentHostData = [
   /**
    * tag name (ion-badge)
    */
-  [0]: string;
+  string,
 
   /**
    * map of bundle ids
    */
-  [1]: {
-    [modeName: string]: any[];
-  };
+  BundleIds,
 
   /**
    * has styles
    */
-  [2]: boolean;
+  boolean,
 
   /**
    * members
    */
-  [3]: ComponentMemberData[];
+  ComponentMemberData[],
 
   /**
    * encapsulated
    */
-  [4]: number;
+  number,
 
   /**
    * listeners
    */
-  [5]: ComponentListenersData[];
-}
+  ComponentListenersData[]
+];
 
 
 export interface ComponentMemberData {

@@ -20,7 +20,8 @@ export function parseCollectionModule(config: Config, compilerCtx: CompilerCtx, 
   // figure out the full path to the collection collection file
   const collectionFilePath = pathJoin(config, collectionPackageRootDir, pkgData.collection);
 
-  config.logger.debug(`load colleciton: ${collectionFilePath}`);
+  const relPath = config.sys.path.relative(config.rootDir, collectionFilePath);
+  config.logger.debug(`load collection: ${collectionName}, ${relPath}`);
 
   // we haven't cached the collection yet, let's read this file
   // sync on purpose :(
@@ -36,6 +37,10 @@ export function parseCollectionModule(config: Config, compilerCtx: CompilerCtx, 
     collectionDir,
     collectionJsonStr
   );
+
+  if (pkgData.module && pkgData.module !== pkgData.main) {
+    collection.hasExports = true;
+  }
 
   // remember the source of this collection node_module
   collection.moduleDir = collectionPackageRootDir;

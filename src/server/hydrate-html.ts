@@ -6,7 +6,7 @@ import { optimizeHtml } from '../compiler/html/optimize-html';
 import { SSR_VNODE_ID } from '../util/constants';
 
 
-export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, outputTarget: d.OutputTargetHydrate, cmpRegistry: d.ComponentRegistry, opts: d.HydrateOptions) {
+export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, outputTarget: d.OutputTargetHydrate, cmpRegistry: d.ComponentRegistry, opts: d.HydrateOptions, perf: Performance) {
   return new Promise<d.HydrateResults>(resolve => {
 
     // validate the hydrate options and add any missing info
@@ -44,11 +44,10 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
 
     // fire off this function when the app has finished loading
     // and all components have finished hydrating
-    plt.onAppLoad = async (rootElm, styles, failureDiagnostic) => {
+    plt.onAppLoad = async (rootElm, failureDiagnostic) => {
 
       if (config._isTesting) {
         (hydrateResults as any).__testPlatform = plt;
-        (hydrateResults as any).__testLogger = config.logger;
       }
 
       if (failureDiagnostic) {
@@ -62,7 +61,7 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
       if (rootElm) {
         try {
           // optimize this document!!
-          await optimizeHtml(config, compilerCtx, hydrateTarget, hydrateResults.url, doc, styles, hydrateResults.diagnostics);
+          await optimizeHtml(config, compilerCtx, hydrateTarget, hydrateResults.url, doc, hydrateResults.diagnostics);
 
           // gather up all of the <a> tag information in the doc
           if (hydrateTarget.isPrerender && hydrateTarget.hydrateComponents) {
@@ -104,7 +103,7 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
     };
 
     if (hydrateTarget.hydrateComponents === false) {
-      plt.onAppLoad(win.document.body as any, []);
+      plt.onAppLoad(win.document.body as any);
       return;
     }
 
@@ -112,7 +111,7 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
     // and to connect any elements it may have just appened to the DOM
     let ssrIds = 0;
     const pltRender = plt.render;
-    plt.render = function render(oldVNode: d.VNode, newVNode, isUpdate, encapsulation) {
+    plt.render = function render(hostElm: d.HostElement, oldVNode: d.VNode, newVNode, useNativeShadowDom, encapsulation) {
       let ssrId: number;
       let existingSsrId: string;
 
@@ -130,9 +129,11 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
         }
       }
 
-      newVNode = pltRender(oldVNode, newVNode, isUpdate, encapsulation, ssrId);
+      useNativeShadowDom = false;
 
-      connectChildElements(config, plt, App, hydrateResults, newVNode.elm as Element);
+      newVNode = pltRender(hostElm, oldVNode, newVNode, useNativeShadowDom, encapsulation, ssrId);
+
+      connectChildElements(config, plt, App, hydrateResults, newVNode.elm as Element, perf);
 
       return newVNode;
     };
@@ -140,7 +141,7 @@ export function hydrateHtml(config: d.Config, compilerCtx: d.CompilerCtx, output
     // loop through each node and start connecting/hydrating
     // any elements that are host elements to components
     // this kicks off all the async hydrating
-    connectChildElements(config, plt, App, hydrateResults, win.document.body);
+    connectChildElements(config, plt, App, hydrateResults, win.document.body, perf);
 
     if (hydrateResults.components.length === 0) {
       // what gives, never found ANY host elements to connect!

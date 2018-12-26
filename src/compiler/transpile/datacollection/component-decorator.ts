@@ -1,8 +1,9 @@
 import * as d from '../../../declarations';
 import { buildWarn } from '../../util';
-import { DEFAULT_STYLE_MODE, ENCAPSULATION } from '../../../util/constants';
+import { ENCAPSULATION } from '../../../util/constants';
 import { getDeclarationParameters, isDecoratorNamed, serializeSymbol } from './utils';
-import * as ts from 'typescript';
+import { getStylesMeta } from './styles-meta';
+import ts from 'typescript';
 
 
 export function getComponentDecoratorMeta(diagnostics: d.Diagnostic[], checker: ts.TypeChecker, node: ts.ClassDeclaration): d.ComponentMeta | undefined {
@@ -21,11 +22,28 @@ export function getComponentDecoratorMeta(diagnostics: d.Diagnostic[], checker: 
     throw new Error(`tag missing in component decorator: ${JSON.stringify(componentOptions, null, 2)}`);
   }
 
+  if (node.heritageClauses && node.heritageClauses.some(c => c.token === ts.SyntaxKind.ExtendsKeyword)) {
+    throw new Error(`Classes decorated with @Component can not extend from a base class.
+  Inherency is temporarily disabled for stencil components.`);
+  }
+
+  // check if class has more than one decorator
+  if (node.decorators.length > 1) {
+    throw new Error(`@Component({ tag: "${componentOptions.tag}" }) can not be decorated with more decorators at the same time`);
+  }
+
+  if (componentOptions.host) {
+    const warn = buildWarn(diagnostics);
+    warn.header = 'Host prop deprecated';
+    warn.messageText = `The “host” property used in @Component({ tag: "${componentOptions.tag}" }) has been deprecated.
+It will be removed in future versions. Please use the "hostData()" method instead. `;
+  }
+
   const symbol = checker.getSymbolAtLocation(node.name);
 
   const cmpMeta: d.ComponentMeta = {
     tagNameMeta: componentOptions.tag,
-    stylesMeta: {},
+    stylesMeta: getStylesMeta(componentOptions),
     assetsDirsMeta: [],
     hostMeta: getHostMeta(diagnostics, componentOptions.host),
     dependencies: [],
@@ -33,70 +51,10 @@ export function getComponentDecoratorMeta(diagnostics: d.Diagnostic[], checker: 
   };
 
   // normalizeEncapsulation
-  cmpMeta.encapsulation =
+  cmpMeta.encapsulationMeta =
       componentOptions.shadow ? ENCAPSULATION.ShadowDom :
       componentOptions.scoped ? ENCAPSULATION.ScopedCss :
       ENCAPSULATION.NoEncapsulation;
-
-  // styles: 'div { padding: 10px }'
-  if (typeof componentOptions.styles === 'string') {
-    componentOptions.styles = componentOptions.styles.trim();
-    if (componentOptions.styles.length > 0) {
-      cmpMeta.stylesMeta = {
-        [DEFAULT_STYLE_MODE]: {
-          styleStr: componentOptions.styles
-        }
-      };
-    }
-  }
-
-  // styleUrl: 'my-styles.css'
-  if (typeof componentOptions.styleUrl === 'string' && componentOptions.styleUrl.trim()) {
-    cmpMeta.stylesMeta = {
-      [DEFAULT_STYLE_MODE]: {
-        externalStyles: [{
-          originalComponentPath: componentOptions.styleUrl.trim()
-        }]
-      }
-    };
-
-  // styleUrls: ['my-styles.css', 'my-other-styles']
-  } else if (Array.isArray(componentOptions.styleUrls)) {
-    cmpMeta.stylesMeta = {
-      [DEFAULT_STYLE_MODE]: {
-        externalStyles: componentOptions.styleUrls.map(styleUrl => {
-          const externalStyle: d.ExternalStyleMeta = {
-            originalComponentPath: styleUrl.trim()
-          };
-          return externalStyle;
-        })
-      }
-    };
-
-  // styleUrls: {
-  //   ios: 'badge.ios.css',
-  //   md: 'badge.md.css',
-  //   wp: 'badge.wp.css'
-  // }
-  } else {
-
-    Object.keys(componentOptions.styleUrls || {}).reduce((stylesMeta, styleType) => {
-      const styleUrls = componentOptions.styleUrls as d.ModeStyles;
-
-      const sUrls = [].concat(styleUrls[styleType]);
-
-      stylesMeta[styleType] = {
-        externalStyles: sUrls.map(sUrl => {
-          const externalStyle: d.ExternalStyleMeta = {
-            originalComponentPath: sUrl
-          };
-          return externalStyle;
-        })
-      };
-
-      return stylesMeta;
-    }, cmpMeta.stylesMeta);
-  }
 
   // assetsDir: './somedir'
   if (componentOptions.assetsDir) {

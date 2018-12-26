@@ -1,9 +1,9 @@
 import * as d from '../../declarations';
-import { Build } from '../../util/build-conditionals';
 import { h } from '../../renderer/vdom/h';
-import { MockedPlatform, mockConnect, mockDefine, mockElement, mockPlatform, waitForLoad } from '../../testing/mocks';
+import { MockedPlatform, mockConnect, mockDefine, mockPlatform, testingPerf, waitForLoad } from '../../testing/mocks';
 import { NODE_TYPE } from '../../util/constants';
-import { queueUpdate, renderUpdate } from '../update';
+import { queueUpdate } from '../update';
+import { getDefaultBuildConditionals } from '../../util/build-conditionals';
 
 
 describe('instance update', () => {
@@ -12,43 +12,9 @@ describe('instance update', () => {
 
   beforeEach(() => {
     plt = mockPlatform();
+    _BUILD_ = getDefaultBuildConditionals();
   });
 
-
-  describe('renderUpdate', () => {
-
-    it('should fire off componentDidUpdate if its on the instance and isInitialLoad is false', () => {
-      class MyComponent {
-        ranLifeCycle = false;
-        componentDidUpdate() {
-          this.ranLifeCycle = true;
-        }
-      }
-      const elm = mockElement('ion-tag') as d.HostElement;
-      const cmpMeta: d.ComponentMeta = { tagNameMeta: 'ion-tag' };
-      plt.defineComponent(cmpMeta);
-      const instance = new MyComponent();
-      renderUpdate(plt, elm, instance, false);
-      expect(instance.ranLifeCycle).toBe(true);
-    });
-
-    it('should not fire off componentDidUpdate if its on the instance and isInitialLoad is true', () => {
-      class MyComponent {
-        ranLifeCycle = false;
-        componentDidUpdate() {
-          this.ranLifeCycle = true;
-        }
-      }
-      const elm = mockElement('ion-tag') as d.HostElement;
-      const cmpMeta: d.ComponentMeta = { tagNameMeta: 'ion-tag' };
-      plt.defineComponent(cmpMeta);
-
-      const instance = new MyComponent();
-      renderUpdate(plt, elm, instance, true);
-      expect(instance.ranLifeCycle).toBe(false);
-    });
-
-  });
 
   it('should render state', async () => {
     mockDefine(plt, {
@@ -64,7 +30,7 @@ describe('instance update', () => {
     });
 
     const node = await mockConnect(plt, '<ion-test></ion-test>');
-    Build.hostData = false;
+    _BUILD_.hostData = false;
     const elm = await waitForLoad(plt, node, 'ion-test');
     const vnode = plt.vnodeMap.get(elm);
     expect(vnode.elm.textContent).toBe('88');
@@ -72,13 +38,11 @@ describe('instance update', () => {
     const instance = plt.instanceMap.get(elm);
     instance.value = '99';
 
-    queueUpdate(plt, elm);
+    queueUpdate(plt, elm, testingPerf);
 
     await plt.$flushQueue();
 
     expect(vnode.elm.textContent).toBe('99');
-
-    Build.hostData = true;
   });
 
   it('should render text', async () => {
@@ -97,7 +61,7 @@ describe('instance update', () => {
     const node = await mockConnect(plt, '<ion-test></ion-test>');
 
     const elm = await waitForLoad(plt, node, 'ion-test');
-    expect(elm.childNodes[0].nodeType).toBe(NODE_TYPE.CommentNode);
+    expect(elm.childNodes[0].nodeType).toBe(NODE_TYPE.TextNode);
     expect(elm.childNodes[1].nodeName).toBe('GRASSHOPPER');
     expect(elm.childNodes[1].textContent).toBe('hi');
   });
@@ -119,7 +83,7 @@ describe('instance update', () => {
     const node = await mockConnect(plt, '<ion-test></ion-test>');
 
     const elm = await waitForLoad(plt, node, 'ion-test');
-    expect(elm.childNodes[0].nodeType).toBe(NODE_TYPE.CommentNode);
+    expect(elm.childNodes[0].nodeType).toBe(NODE_TYPE.TextNode);
     expect(elm.childNodes[1].nodeType).toBe(3); // Node.TEXT_NODE
     expect(elm.childNodes[1].textContent).toBe('');
     expect(elm.childNodes[2].nodeType).toBe(1); // Node.ELEMENT_NODE

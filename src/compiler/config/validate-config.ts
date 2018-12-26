@@ -1,15 +1,19 @@
-import { Config } from '../../declarations';
+import * as d from '../../declarations';
 import { setArrayConfig, setBooleanConfig, setNumberConfig, setStringConfig } from './config-utils';
 import { validateAssetVerioning } from './validate-asset-versioning';
 import { validateCopy } from './validate-copy';
+import { validateDevServer } from './validate-dev-server';
 import { validateNamespace } from './validate-namespace';
 import { validateOutputTargets } from './validate-outputs';
 import { validatePaths } from './validate-paths';
 import { validatePlugins } from './validate-plugins';
+import { validateRollupConfig } from './validate-rollup-config';
+import { validateTesting } from './validate-testing';
+import { validateWorkers } from './validate-workers';
 import { _deprecatedValidateConfigCollections } from './_deprecated-validate-config-collection';
 
 
-export function validateConfig(config: Config, setEnvVariables?: boolean) {
+export function validateConfig(config: d.Config, setEnvVariables?: boolean) {
   if (!config) {
     throw new Error(`invalid build config`);
   }
@@ -63,6 +67,9 @@ export function validateConfig(config: Config, setEnvVariables?: boolean) {
   // setup the outputTargets
   validateOutputTargets(config);
 
+  // validate how many workers we can use
+  validateWorkers(config);
+
   // default devInspector to whatever devMode is
   setBooleanConfig(config, 'devInspector', null, config.devMode);
 
@@ -72,9 +79,13 @@ export function validateConfig(config: Config, setEnvVariables?: boolean) {
   setBooleanConfig(config, 'minifyCss', null, !config.devMode);
   setBooleanConfig(config, 'minifyJs', null, !config.devMode);
 
-  config.logger.debug(`minifyJs: ${config.minifyJs}, minifyCss: ${config.minifyCss}`);
-
   setBooleanConfig(config, 'buildEs5', 'es5', !config.devMode);
+  setBooleanConfig(config, 'buildEsm', 'esm', config.buildEs5);
+  setBooleanConfig(config, 'buildScoped', null, config.buildEs5);
+
+  if (typeof config.validateTypes !== 'boolean') {
+    config.validateTypes = true;
+  }
 
   setBooleanConfig(config, 'hashFileNames', null, !(config.devMode || config.watch));
   setNumberConfig(config, 'hashedFileNameLength', null, DEFAULT_HASHED_FILENAME_LENTH);
@@ -87,13 +98,14 @@ export function validateConfig(config: Config, setEnvVariables?: boolean) {
       throw new Error(`config.hashedFileNameLength cannot be more than ${MAX_HASHED_FILENAME_LENTH} characters`);
     }
   }
-  config.logger.debug(`hashFileNames: ${config.hashFileNames}, hashedFileNameLength: ${config.hashedFileNameLength}`);
 
   validateCopy(config);
 
   validatePlugins(config);
 
   validateAssetVerioning(config);
+
+  validateDevServer(config);
 
   if (!config.watchIgnoredRegex) {
     config.watchIgnoredRegex = DEFAULT_WATCH_IGNORED_REGEX;
@@ -124,17 +136,18 @@ export function validateConfig(config: Config, setEnvVariables?: boolean) {
   // set to true so it doesn't bother going through all this again on rebuilds
   config._isValidated = true;
 
-  config.logger.debug(`validated build config`);
-
   if (setEnvVariables !== false) {
     setProcessEnvironment(config);
   }
+
+  validateRollupConfig(config);
+  validateTesting(config);
 
   return config;
 }
 
 
-export function setProcessEnvironment(config: Config) {
+export function setProcessEnvironment(config: d.Config) {
   process.env.NODE_ENV = config.devMode ? 'development' : 'production';
 }
 
@@ -144,6 +157,6 @@ const DEFAULT_HASHED_FILENAME_LENTH = 8;
 const MIN_HASHED_FILENAME_LENTH = 4;
 const MAX_HASHED_FILENAME_LENTH = 32;
 const DEFAULT_INCLUDES = ['**/*.ts', '**/*.tsx'];
-const DEFAULT_EXCLUDES = ['**/test/**', '**/*.spec.*'];
+const DEFAULT_EXCLUDES = ['**/*.+(spec|e2e).*'];
 const DEFAULT_WATCH_IGNORED_REGEX = /(?:^|[\\\/])(\.(?!\.)[^\\\/]+)$/i;
 const DEFAULT_HYDRATED_CSS_CLASS = 'hydrated';

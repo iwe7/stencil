@@ -1,36 +1,48 @@
 import * as d from '../../declarations';
 import { RESERVED_PROPERTIES } from './reserved-properties';
-import { transpileCoreBuild } from '../transpile/core-build';
+import { transpileCoreBuild } from '../transpile/core-es5-build';
+import { replaceBuildString } from '../../util/text-manipulation';
 
 
 export async function buildCoreContent(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, coreBuild: d.BuildConditionals, coreContent: string) {
-  const timespan = config.logger.createTimeSpan(`buildCoreContent ${coreBuild.coreId} start`, true);
-
-  const transpileResults = await transpileCoreBuild(compilerCtx, coreBuild, coreContent);
-
-  if (transpileResults.diagnostics && transpileResults.diagnostics.length) {
-    buildCtx.diagnostics.push(...transpileResults.diagnostics);
-    return coreContent;
+  if (buildCtx.hasError || !buildCtx.isActiveBuild) {
+    return '';
   }
 
-  coreContent = transpileResults.code;
+  // Replace all _BUILD_ with the current coreBuild obj
+  const replaceObj = Object.keys(coreBuild).reduce((all, key) => {
+    all[`_BUILD_.${key}`] = coreBuild[key];
+    return all;
+  }, <{ [key: string]: any}>{});
 
-  const sourceTarget: d.SourceTarget = coreBuild.es5 ? 'es5' : 'es2015';
+  let replacedContent = replaceBuildString(coreContent, replaceObj);
 
-  const minifyResults = await minifyCore(config, compilerCtx, sourceTarget, coreContent);
+  // If this is an es5 build then transpile the code down to es5 using Typescript.
+  if (coreBuild.es5) {
+    const transpileResults = await transpileCoreBuild(config, compilerCtx, coreBuild, replacedContent);
 
-  if (minifyResults.diagnostics && minifyResults.diagnostics.length) {
+    if (transpileResults.diagnostics && transpileResults.diagnostics.length > 0) {
+      buildCtx.diagnostics.push(...transpileResults.diagnostics);
+      return replacedContent;
+    }
+
+    replacedContent = transpileResults.code;
+  }
+
+  const sourceTarget: d.SourceTarget = coreBuild.es5 ? 'es5' : 'es2017';
+
+  const minifyResults = await minifyCore(config, compilerCtx, sourceTarget, replacedContent);
+
+  if (minifyResults.diagnostics.length > 0) {
     buildCtx.diagnostics.push(...minifyResults.diagnostics);
-    return coreContent;
+    return replacedContent;
   }
-
-  timespan.finish(`buildCoreContent ${coreBuild.coreId} finished`);
 
   return minifyResults.output;
 }
 
 
-async function minifyCore(config: d.Config, compilerCtx: d.CompilerCtx, sourceTarget: d.SourceTarget, input: string) {
+export async function minifyCore(config: d.Config, compilerCtx: d.CompilerCtx, sourceTarget: d.SourceTarget, input: string) {
   const opts: any = Object.assign({}, config.minifyJs ? PROD_MINIFY_OPTS : DEV_MINIFY_OPTS);
 
   if (sourceTarget === 'es5') {
@@ -38,9 +50,14 @@ async function minifyCore(config: d.Config, compilerCtx: d.CompilerCtx, sourceTa
     opts.output.ecma = 5;
     opts.compress.ecma = 5;
     opts.compress.arrows = false;
-  }
+    opts.compress.module = false;
 
-  opts.compress.toplevel = true;
+  } else {
+    opts.ecma = 7;
+    opts.output.ecma = 7;
+    opts.compress.ecma = 7;
+    opts.compress.module = true;
+  }
 
   if (config.minifyJs) {
     if (sourceTarget !== 'es5') {
@@ -61,24 +78,27 @@ async function minifyCore(config: d.Config, compilerCtx: d.CompilerCtx, sourceTa
       opts.compress.drop_console = false;
       opts.compress.drop_debugger = false;
       opts.output.beautify = true;
-      opts.output.bracketize = true;
       opts.output.indent_level = 2;
       opts.output.comments = 'all';
-      opts.output.preserve_line = true;
+    } else {
+      opts.output.comments = '/webpack/';
     }
   }
 
-  const cacheKey = compilerCtx.cache.createKey('minifyCore', opts, input);
-  const cachedContent = await compilerCtx.cache.get(cacheKey);
-  if (cachedContent != null) {
-    return {
-      output: cachedContent,
-      diagnostics: [] as d.Diagnostic[]
-    };
+  let cacheKey: string;
+  if (compilerCtx) {
+    cacheKey = compilerCtx.cache.createKey('minifyCore', '__BUILDID__', opts, input);
+    const cachedContent = await compilerCtx.cache.get(cacheKey);
+    if (cachedContent != null) {
+      return {
+        output: cachedContent,
+        diagnostics: [] as d.Diagnostic[]
+      };
+    }
   }
 
-  const results = config.sys.minifyJs(input, opts);
-  if (results && results.diagnostics.length === 0) {
+  const results = await config.sys.minifyJs(input, opts);
+  if (results && results.diagnostics.length === 0 && compilerCtx) {
     await compilerCtx.cache.put(cacheKey, results.output);
   }
 
@@ -86,7 +106,7 @@ async function minifyCore(config: d.Config, compilerCtx: d.CompilerCtx, sourceTa
 }
 
 
-// Documentation of uglify options: https://github.com/mishoo/UglifyJS2
+// https://www.npmjs.com/package/terser
 const DEV_MINIFY_OPTS: any = {
   compress: {
     arrows: false,
@@ -114,12 +134,13 @@ const DEV_MINIFY_OPTS: any = {
     properties: true,
     pure_funcs: null,
     pure_getters: false,
-    reduce_vars: false,
-    sequences: false,
-    side_effects: false,
+    reduce_vars: true,
+    sequences: true,
+    side_effects: true,
     switches: false,
-    typeofs: false,
+    toplevel: true,
     top_retain: false,
+    typeofs: false,
     unsafe: false,
     unsafe_arrows: false,
     unsafe_comps: false,
@@ -134,7 +155,6 @@ const DEV_MINIFY_OPTS: any = {
   output: {
     ascii_only: false,
     beautify: true,
-    bracketize: true,
     comments: 'all',
     ie8: false,
     indent_level: 2,
@@ -143,7 +163,6 @@ const DEV_MINIFY_OPTS: any = {
     keep_quoted_props: true,
     max_line_len: false,
     preamble: null,
-    preserve_line: true,
     quote_keys: false,
     quote_style: 1,
     semicolons: true,
@@ -164,7 +183,7 @@ const PROD_MINIFY_OPTS: any = {
     comparisons: true,
     conditionals: true,
     dead_code: true,
-    drop_console: true,
+    drop_console: false,
     drop_debugger: true,
     evaluate: true,
     expression: true,
@@ -174,12 +193,12 @@ const PROD_MINIFY_OPTS: any = {
     if_return: true,
     inline: true,
     join_vars: true,
-    keep_fargs: true,
+    keep_fargs: false,
     keep_fnames: true,
     keep_infinity: true,
     loops: true,
     negate_iife: false,
-    passes: 2,
+    passes: 3,
     properties: true,
     pure_funcs: null,
     pure_getters: false,
@@ -187,6 +206,7 @@ const PROD_MINIFY_OPTS: any = {
     sequences: true,
     side_effects: true,
     switches: true,
+    toplevel: true,
     typeofs: true,
     unsafe: false,
     unsafe_arrows: false,
@@ -203,12 +223,12 @@ const PROD_MINIFY_OPTS: any = {
       builtins: false,
       debug: false,
       keep_quoted: true
-    }
+    },
+    toplevel: true
   },
   output: {
     ascii_only: false,
     beautify: false,
-    bracketize: false,
     comments: false,
     ie8: false,
     indent_level: 0,
@@ -217,7 +237,6 @@ const PROD_MINIFY_OPTS: any = {
     keep_quoted_props: false,
     max_line_len: false,
     preamble: null,
-    preserve_line: false,
     quote_keys: false,
     quote_style: 0,
     semicolons: true,

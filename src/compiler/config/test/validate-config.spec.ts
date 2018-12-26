@@ -14,8 +14,7 @@ describe('validation', () => {
     config = {
       sys: sys,
       logger: logger,
-      rootDir: '/User/some/path/',
-      suppressTypeScriptErrors: true
+      rootDir: '/User/some/path/'
     };
   });
 
@@ -76,13 +75,13 @@ describe('validation', () => {
       expect(config.buildEs5).toBe(true);
     });
 
-    it('prod mode default to both es2015 and es5', () => {
+    it('prod mode default to both es2017 and es5', () => {
       config.devMode = false;
       validateConfig(config);
       expect(config.buildEs5).toBe(true);
     });
 
-    it('dev mode default to only es2015', () => {
+    it('dev mode default to only es2017', () => {
       config.devMode = true;
       validateConfig(config);
       expect(config.buildEs5).toBe(false);
@@ -104,7 +103,7 @@ describe('validation', () => {
 
     it('should default exclude glob', () => {
       validateConfig(config);
-      expect(config.excludeSrc).toEqual(['**/test/**', '**/*.spec.*']);
+      expect(config.excludeSrc).toEqual(['**/*.+(spec|e2e).*']);
     });
 
   });

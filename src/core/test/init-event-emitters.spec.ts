@@ -1,7 +1,5 @@
-import { ComponentConstructorEvent } from '../../declarations';
-import { HostElement } from '../../index';
 import { initEventEmitters } from '../init-event-emitters';
-import { mockComponentInstance, mockElement, mockPlatform } from '../../testing/mocks';
+import { mockDocument, mockPlatform } from '../../testing/mocks';
 
 
 describe('initEventEmitters', () => {
@@ -9,7 +7,7 @@ describe('initEventEmitters', () => {
   it('should init event emitter', () => {
     const plt = mockPlatform();
     const instance = {};
-    const elm = mockElement() as any;
+    const elm = plt.domApi.$createElement('div');
 
     plt.instanceMap.set(elm, instance);
     plt.hostElementMap.set(instance, elm);
@@ -40,6 +38,38 @@ describe('initEventEmitters', () => {
         composed: event.composed,
         detail: 'detail'
       });
+    }
+  });
+
+  it('should event emitter should return custom event', () => {
+    const plt = mockPlatform();
+    const instance = {};
+    const elm = plt.domApi.$createElement('div');
+
+    plt.instanceMap.set(elm, instance);
+    plt.hostElementMap.set(instance, elm);
+
+    const events = [{
+      name: 'my-event',
+      method: 'myEvent',
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    },
+    {
+      name: 'ionEvent',
+      method: 'ionEvent',
+      bubbles: false,
+      cancelable: false,
+      composed: false
+    }];
+
+    initEventEmitters(plt, events, instance);
+
+    for (const event of events) {
+      const ce = instance[event.method].emit('detail');
+      expect(ce).not.toEqual(null);
+      expect(ce.type).toEqual(event.name);
     }
   });
 

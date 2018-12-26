@@ -5,17 +5,13 @@ import { normalizePath } from '../util';
 export async function generateBuildStats(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, buildResults: d.BuildResults) {
   const statsTargets = (config.outputTargets as d.OutputTargetStats[]).filter(o => o.type === 'stats');
 
-  await Promise.all(statsTargets.map(outputTarget => {
-    return generateStatsOutputTarget(config, compilerCtx, buildCtx, buildResults, outputTarget);
+  await Promise.all(statsTargets.map(async outputTarget => {
+    await generateStatsOutputTarget(config, compilerCtx, buildCtx, buildResults, outputTarget);
   }));
 }
 
 
 export async function generateStatsOutputTarget(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, buildResults: d.BuildResults, outputTarget: d.OutputTargetStats) {
-  if (buildCtx.aborted) {
-    return;
-  }
-
   try {
     let jsonData: any;
 
@@ -49,6 +45,7 @@ export async function generateStatsOutputTarget(config: d.Config, compilerCtx: d
         },
         components: buildResults.components,
         entries: buildResults.entries,
+        rollupResults: buildCtx.rollupResults,
         sourceGraph: {},
         collections: buildCtx.collections.map(c => {
           return {
@@ -63,16 +60,20 @@ export async function generateStatsOutputTarget(config: d.Config, compilerCtx: d
         })
       };
 
-      buildCtx.moduleGraphs
+      const moduleFiles = compilerCtx.rootTsFiles.map(rootTsFile => {
+        return compilerCtx.moduleFiles[rootTsFile];
+      });
+
+      moduleFiles
         .sort((a, b) => {
-          if (a.filePath < b.filePath) return -1;
-          if (a.filePath > b.filePath) return 1;
+          if (a.sourceFilePath < b.sourceFilePath) return -1;
+          if (a.sourceFilePath > b.sourceFilePath) return 1;
           return 0;
 
-        }).forEach(mg => {
-          const key = normalizePath(config.sys.path.relative(config.rootDir, mg.filePath));
-          stats.sourceGraph[key] = mg.importPaths.map(importPath => {
-            return normalizePath(config.sys.path.relative(config.rootDir, importPath));
+        }).forEach(moduleFile => {
+          const key = normalizePath(config.sys.path.relative(config.rootDir, moduleFile.sourceFilePath));
+          stats.sourceGraph[key] = moduleFile.localImports.map(localImport => {
+            return normalizePath(config.sys.path.relative(config.rootDir, localImport));
           }).sort();
         });
 

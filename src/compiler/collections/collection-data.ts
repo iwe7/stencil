@@ -4,8 +4,10 @@ import { normalizePath } from '../util';
 
 
 export async function writeAppCollections(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx) {
-  return Promise.all(config.outputTargets.map(outputTarget => {
-    return writeAppCollection(config, compilerCtx, buildCtx, outputTarget);
+  const outputTargets = (config.outputTargets as d.OutputTargetDist[]).filter(o => o.collectionDir);
+
+  await Promise.all(outputTargets.map(async outputTarget => {
+    await writeAppCollection(config, compilerCtx, buildCtx, outputTarget);
   }));
 }
 
@@ -15,18 +17,11 @@ export async function writeAppCollections(config: d.Config, compilerCtx: d.Compi
 // over the top lame mapping functions is basically so we can loosly
 // couple core component meta data between specific versions of the compiler
 async function writeAppCollection(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, outputTarget: d.OutputTargetDist) {
-
-  if (!outputTarget.collectionDir) {
-    return Promise.resolve();
-  }
-
   // get the absolute path to the directory where the collection will be saved
   const collectionDir = normalizePath(outputTarget.collectionDir);
 
   // create an absolute file path to the actual collection json file
   const collectionFilePath = normalizePath(config.sys.path.join(collectionDir, COLLECTION_MANIFEST_FILE_NAME));
-
-  config.logger.debug(`collection, serialize: ${collectionFilePath}`);
 
   // serialize the collection into a json string and
   // add it to the list of files we need to write when we're ready
@@ -34,8 +29,6 @@ async function writeAppCollection(config: d.Config, compilerCtx: d.CompilerCtx, 
 
   // don't bother serializing/writing the collection if we're not creating a distribution
   await compilerCtx.fs.writeFile(collectionFilePath, JSON.stringify(collectionData, null, 2));
-
-  return collectionData;
 }
 
 
@@ -174,8 +167,12 @@ export function serializeComponent(config: d.Config, collectionDir: string, modu
   const cmpData: d.ComponentData = {};
   const cmpMeta = moduleFile.cmpMeta;
 
-  // get the absolute path to the compiled component's output javascript file
-  const compiledComponentAbsoluteFilePath = normalizePath(moduleFile.jsFilePath);
+  // get the current absolute path to our built js file
+  // and figure out the relative path from the src dir
+  const relToSrc = normalizePath(config.sys.path.relative(config.srcDir, moduleFile.jsFilePath));
+
+  // figure out the absolute path when it's in the collection dir
+  const compiledComponentAbsoluteFilePath = normalizePath(config.sys.path.join(collectionDir, relToSrc));
 
   // create a relative path from the collection file to the compiled component's output javascript file
   const compiledComponentRelativeFilePath = normalizePath(config.sys.path.relative(collectionDir, compiledComponentAbsoluteFilePath));
@@ -206,9 +203,13 @@ export function serializeComponent(config: d.Config, collectionDir: string, modu
 
 export function parseComponentDataToModuleFile(config: d.Config, collection: d.Collection, collectionDir: string, cmpData: d.ComponentData) {
   const moduleFile: d.ModuleFile = {
+    sourceFilePath: normalizePath(config.sys.path.join(collectionDir, cmpData.componentPath)),
     cmpMeta: {},
     isCollectionDependency: true,
-    excludeFromCollection: excludeFromCollection(config, cmpData)
+    excludeFromCollection: excludeFromCollection(config, cmpData),
+    localImports: [],
+    externalImports: [],
+    potentialCmpRefs: []
   };
   const cmpMeta = moduleFile.cmpMeta;
 
@@ -440,11 +441,15 @@ function serializeProps(cmpData: d.ComponentData, cmpMeta: d.ComponentMeta) {
         propData.mutable = true;
       }
 
+      if (memberMeta.reflectToAttrib) {
+        propData.reflectToAttr = true;
+      }
+
       if (typeof memberMeta.attribName === 'string') {
         propData.attr = memberMeta.attribName;
       }
 
-      if (memberMeta.watchCallbacks && memberMeta.watchCallbacks.length) {
+      if (memberMeta.watchCallbacks && memberMeta.watchCallbacks.length > 0) {
         propData.watch = memberMeta.watchCallbacks.slice();
       }
 
@@ -463,12 +468,16 @@ function parseProps(config: d.Config, collection: d.Collection, cmpData: d.Compo
   cmpMeta.membersMeta = cmpMeta.membersMeta || {};
 
   propsData.forEach(propData => {
-    cmpMeta.membersMeta[propData.name] = {};
+    const member: d.MemberMeta = cmpMeta.membersMeta[propData.name] = {};
 
     if (propData.mutable) {
-      cmpMeta.membersMeta[propData.name].memberType = MEMBER_TYPE.PropMutable;
+      member.memberType = MEMBER_TYPE.PropMutable;
     } else {
-      cmpMeta.membersMeta[propData.name].memberType = MEMBER_TYPE.Prop;
+      member.memberType = MEMBER_TYPE.Prop;
+    }
+
+    if (propData.reflectToAttr) {
+      member.reflectToAttrib = true;
     }
 
     // the standard is the first character of the type is capitalized
@@ -476,32 +485,32 @@ function parseProps(config: d.Config, collection: d.Collection, cmpData: d.Compo
     const type = typeof propData.type === 'string' ? propData.type.toLowerCase().trim() : null;
 
     if (type === BOOLEAN_KEY.toLowerCase()) {
-      cmpMeta.membersMeta[propData.name].propType = PROP_TYPE.Boolean;
+      member.propType = PROP_TYPE.Boolean;
 
     } else if (type === NUMBER_KEY.toLowerCase()) {
-      cmpMeta.membersMeta[propData.name].propType = PROP_TYPE.Number;
+      member.propType = PROP_TYPE.Number;
 
     } else if (type === STRING_KEY.toLowerCase()) {
-      cmpMeta.membersMeta[propData.name].propType = PROP_TYPE.String;
+      member.propType = PROP_TYPE.String;
 
     } else if (type === ANY_KEY.toLowerCase()) {
-      cmpMeta.membersMeta[propData.name].propType = PROP_TYPE.Any;
+      member.propType = PROP_TYPE.Any;
 
     } else if (!collection.compiler || !collection.compiler.version || config.sys.semver.lt(collection.compiler.version, '0.0.6-23')) {
       // older compilers didn't remember "any" type
-      cmpMeta.membersMeta[propData.name].propType = PROP_TYPE.Any;
+      member.propType = PROP_TYPE.Any;
     }
 
-    if (cmpMeta.membersMeta[propData.name].propType) {
+    if (member.propType) {
       // deprecated 0.7.3, 2018-03-19
-      cmpMeta.membersMeta[propData.name].attribName = propData.name;
+      member.attribName = propData.name;
     }
     if (typeof propData.attr === 'string') {
-      cmpMeta.membersMeta[propData.name].attribName = propData.attr;
+      member.attribName = propData.attr;
     }
 
     if (!invalidArrayData(propData.watch)) {
-      cmpMeta.membersMeta[propData.name].watchCallbacks = propData.watch.slice().sort();
+      member.watchCallbacks = propData.watch.slice().sort();
     }
   });
 }
@@ -829,10 +838,10 @@ function parseHost(cmpData: d.ComponentData, cmpMeta: d.ComponentMeta) {
 
 
 function serializeEncapsulation(cmpData: d.ComponentData, cmpMeta: d.ComponentMeta) {
-  if (cmpMeta.encapsulation === ENCAPSULATION.ShadowDom) {
+  if (cmpMeta.encapsulationMeta === ENCAPSULATION.ShadowDom) {
     cmpData.shadow = true;
 
-  } else if (cmpMeta.encapsulation === ENCAPSULATION.ScopedCss) {
+  } else if (cmpMeta.encapsulationMeta === ENCAPSULATION.ScopedCss) {
     cmpData.scoped = true;
   }
 }
@@ -840,13 +849,13 @@ function serializeEncapsulation(cmpData: d.ComponentData, cmpMeta: d.ComponentMe
 
 function parseEncapsulation(cmpData: d.ComponentData, cmpMeta: d.ComponentMeta) {
   if (cmpData.shadow === true) {
-    cmpMeta.encapsulation = ENCAPSULATION.ShadowDom;
+    cmpMeta.encapsulationMeta = ENCAPSULATION.ShadowDom;
 
   } else if (cmpData.scoped === true) {
-    cmpMeta.encapsulation = ENCAPSULATION.ScopedCss;
+    cmpMeta.encapsulationMeta = ENCAPSULATION.ScopedCss;
 
   } else {
-    cmpMeta.encapsulation = ENCAPSULATION.NoEncapsulation;
+    cmpMeta.encapsulationMeta = ENCAPSULATION.NoEncapsulation;
   }
 }
 
@@ -856,7 +865,15 @@ export function serializeAppGlobal(config: d.Config, collectionDir: string, coll
     return;
   }
 
-  collectionData.global = normalizePath(config.sys.path.relative(collectionDir, globalModule.jsFilePath));
+  // get the current absolute path to our built js file
+  // and figure out the relative path from the src dir
+  const relToSrc = normalizePath(config.sys.path.relative(config.srcDir, globalModule.jsFilePath));
+
+  // figure out the absolute path when it's in the collection dir
+  const compiledComponentAbsoluteFilePath = normalizePath(config.sys.path.join(collectionDir, relToSrc));
+
+  // create a relative path from the collection file to the compiled output javascript file
+  collectionData.global = normalizePath(config.sys.path.relative(collectionDir, compiledComponentAbsoluteFilePath));
 }
 
 
@@ -864,7 +881,11 @@ export function parseGlobal(config: d.Config, collectionDir: string, collectionD
   if (typeof collectionData.global !== 'string') return;
 
   collection.global = {
-    jsFilePath: normalizePath(config.sys.path.join(collectionDir, collectionData.global))
+    sourceFilePath: normalizePath(config.sys.path.join(collectionDir, collectionData.global)),
+    jsFilePath: normalizePath(config.sys.path.join(collectionDir, collectionData.global)),
+    localImports: [],
+    externalImports: [],
+    potentialCmpRefs: []
   };
 }
 

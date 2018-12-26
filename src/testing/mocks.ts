@@ -1,16 +1,37 @@
 import * as d from '../declarations';
+import { BuildContext } from '../compiler/build/build-ctx';
 import { Cache } from '../compiler/cache';
 import { createDomApi } from '../renderer/dom-api';
 import { createPlatformServer } from '../server/platform-server';
+import { createQueueServer } from '../server/queue-server';
 import { createRendererPatch } from '../renderer/vdom/patch';
 import { initComponentInstance } from '../core/init-component-instance';
 import { initHostElement } from '../core/init-host-element';
 import { InMemoryFileSystem } from '../util/in-memory-fs';
 import { TestingConfig } from './testing-config';
-import { TestingSystem } from './testing-sys';
 import { TestingFs } from './testing-fs';
 import { TestingLogger } from './testing-logger';
+import { TestingSystem } from './testing-sys';
 import { validateConfig } from '../compiler/config/validate-config';
+import { MockCustomEvent, mockDocument, mockWindow } from '@stencil/core/mock-doc';
+import { noop } from '../util/helpers';
+
+
+export { mockDocument, mockWindow };
+
+
+export const testingPerf = { mark: noop, measure: noop } as any;
+
+
+export function mockDom(url: string, html: string): { win: Window, doc: HTMLDocument } {
+  const win = mockWindow() as any;
+  win.location.href = url;
+
+  const doc = mockDocument(html);
+  win.document = doc;
+
+  return { win, doc };
+}
 
 
 export function mockPlatform(win?: any, domApi?: d.DomApi, cmpRegistry?: d.ComponentRegistry) {
@@ -19,9 +40,9 @@ export function mockPlatform(win?: any, domApi?: d.DomApi, cmpRegistry?: d.Compo
   };
   const App: d.AppGlobal = {};
   const config = mockConfig();
-  const outputTarget = config.outputTargets[0];
+  const outputTarget = config.outputTargets[0] as d.OutputTargetWww;
 
-  win = win || config.sys.createDom().parse({html: ''});
+  win = win || mockWindow();
   domApi = domApi || createDomApi(App, win, win.document);
   cmpRegistry = cmpRegistry || {};
 
@@ -45,7 +66,7 @@ export function mockPlatform(win?: any, domApi?: d.DomApi, cmpRegistry?: d.Compo
 
   const $mockedQueue = plt.queue = mockQueue();
 
-  (plt as MockedPlatform).$flushQueue = function() {
+  (plt as MockedPlatform).$flushQueue = () => {
     return new Promise(resolve => {
       $mockedQueue.flush(resolve);
     });
@@ -53,8 +74,8 @@ export function mockPlatform(win?: any, domApi?: d.DomApi, cmpRegistry?: d.Compo
 
   const renderer = createRendererPatch(plt, domApi);
 
-  plt.render = function(oldVNode, newVNode, isUpdate, encapsulation) {
-    return renderer(oldVNode, newVNode, isUpdate, encapsulation);
+  plt.render = function(hostElm, oldVNode, newVNode, useNativeShadowDom, encapsulation) {
+    return renderer(hostElm, oldVNode, newVNode, useNativeShadowDom, encapsulation);
   };
 
   return plt as MockedPlatform;
@@ -76,13 +97,26 @@ export function mockConfig(opts = { enableLogger: false }): d.Config {
 export function mockCompilerCtx() {
   const compilerCtx: d.CompilerCtx = {
     activeBuildId: 0,
-    fs: new InMemoryFileSystem(mockFs(), require('path')),
+    fs: new InMemoryFileSystem(mockFs(), { path: require('path') } as any),
     collections: [],
     appFiles: {},
     cache: mockCache()
   };
 
   return compilerCtx;
+}
+
+
+export function mockBuildCtx(config?: d.Config, compilerCtx?: d.CompilerCtx) {
+  if (!config) {
+    config = mockConfig();
+  }
+  if (!compilerCtx) {
+    compilerCtx = mockCompilerCtx();
+  }
+  const buildCtx = new BuildContext(config, compilerCtx);
+
+  return buildCtx as d.BuildCtx;
 }
 
 
@@ -121,32 +155,13 @@ export function mockLogger() {
 
 
 export function mockCache() {
-  const fs = new InMemoryFileSystem(mockFs(), require('path'));
+  const fs = new InMemoryFileSystem(mockFs(), { path: require('path') } as any);
   const config = mockConfig();
   config.enableCache = true;
-  return new Cache(config, fs, '/tmp/mock-cache');
-}
 
-
-export function mockWindow() {
-  const opts: d.HydrateOptions = {
-    userAgent: 'test'
-  };
-
-  const window = mockStencilSystem().createDom().parse(opts);
-
-  (window as any).requestAnimationFrame = (callback: Function) => {
-    setTimeout(() => {
-      callback(Date.now());
-    });
-  };
-
-  return window;
-}
-
-
-export function mockDocument(window?: Window) {
-  return (window || mockWindow()).document;
+  const cache = new Cache(config, fs);
+  cache.initCacheDir();
+  return cache;
 }
 
 
@@ -165,47 +180,9 @@ export function mockRenderer(plt?: MockedPlatform, domApi?: d.DomApi): d.Rendere
 
 
 export function mockQueue() {
-  const callbacks: Function[] = [];
-
-  function flush(cb?: Function) {
-    setTimeout(() => {
-      while (callbacks.length > 0) {
-        callbacks.shift()();
-      }
-      cb();
-    }, Math.round(Math.random() * 20));
-  }
-
-  function add(cb: Function) {
-    callbacks.push(cb);
-  }
-
-  function clear() {
-    callbacks.length = 0;
-  }
-
-  return {
-    add: add,
-    flush: flush,
-    clear: clear
-  };
+  return createQueueServer();
 }
 
-
-export function mockHtml(html: string): Element {
-  const jsdom = require('jsdom');
-  return jsdom.JSDOM.fragment(html.trim()).firstChild;
-}
-
-export function mockSVGElement(): Element {
-  const jsdom = require('jsdom');
-  return jsdom.JSDOM.fragment(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`).firstChild;
-}
-
-export function mockElement(tag = 'div'): Element {
-  const jsdom = require('jsdom');
-  return jsdom.JSDOM.fragment(`<${tag}></${tag}>`).firstChild;
-}
 
 export function mockComponentInstance(plt: d.PlatformApi, domApi: d.DomApi, cmpMeta: d.ComponentMeta = {}): d.ComponentInstance {
   mockDefine(plt, cmpMeta);
@@ -216,12 +193,7 @@ export function mockComponentInstance(plt: d.PlatformApi, domApi: d.DomApi, cmpM
     $attributes: {}
   };
 
-  return initComponentInstance(plt, elm, hostSnapshot);
-}
-
-export function mockTextNode(text: string): Element {
-  const jsdom = require('jsdom');
-  return jsdom.JSDOM.fragment(text).firstChild;
+  return initComponentInstance(plt, elm, hostSnapshot, testingPerf);
 }
 
 
@@ -242,20 +214,15 @@ export function mockDefine(plt: MockedPlatform, cmpMeta: d.ComponentMeta) {
   return cmpMeta;
 }
 
-export function mockEvent(domApi: d.DomApi, name: string, detail: any = {}): CustomEvent {
-  const evt = (domApi.$documentElement.parentNode as Document).createEvent('CustomEvent');
-  evt.initCustomEvent(name, false, false, detail);
-  return evt;
-}
-
-export function mockDispatchEvent(domApi: d.DomApi, el: HTMLElement, name: string, detail: any = {}): boolean {
-  const ev = mockEvent(domApi, name, detail);
-  return el.dispatchEvent(ev);
+export function mockDispatchEvent(elm: HTMLElement, name: string, detail: any = {}): boolean {
+  const ev = new MockCustomEvent(name, { detail });
+  return elm.dispatchEvent(ev as any);
 }
 
 export async function mockConnect(plt: MockedPlatform, html: string) {
-  const jsdom = require('jsdom');
-  const rootNode = jsdom.JSDOM.fragment(html);
+  const tmp = plt.domApi.$doc.createElement('div');
+  tmp.innerHTML = html;
+  const rootNode = tmp.firstElementChild as any;
 
   connectComponents(plt, rootNode);
 
@@ -272,7 +239,7 @@ function connectComponents(plt: MockedPlatform, node: d.HostElement) {
     if (!plt.hasConnectedMap.has(node)) {
       const cmpMeta = (plt as d.PlatformApi).getComponentMeta(node);
       if (cmpMeta) {
-        initHostElement((plt as d.PlatformApi), cmpMeta, node, 'hydrated');
+        initHostElement((plt as d.PlatformApi), cmpMeta, node, 'hydrated', testingPerf);
         (node as d.HostElement).connectedCallback();
       }
     }
@@ -287,7 +254,7 @@ function connectComponents(plt: MockedPlatform, node: d.HostElement) {
 
 
 export async function waitForLoad(plt: MockedPlatform, rootNode: any, tag: string) {
-  const elm: d.HostElement = rootNode.tagName === tag.toLowerCase() ? rootNode : rootNode.querySelector(tag);
+  const elm: d.HostElement = rootNode.nodeName.toLowerCase() === tag.toLowerCase() ? rootNode : rootNode.querySelector(tag);
 
     // flush to read attribute mode on host elment
   await plt.$flushQueue();

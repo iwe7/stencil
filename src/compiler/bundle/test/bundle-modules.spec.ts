@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { expectFiles } from '../../../testing/utils';
 import { TestingCompiler } from '../../../testing/testing-compiler';
 
@@ -7,55 +8,12 @@ describe('bundle-module', () => {
   describe('build', () => {
 
     let c: TestingCompiler;
+    const root = path.resolve('/');
 
     beforeEach(async () => {
       c = new TestingCompiler();
-      await c.fs.writeFile('/src/index.html', `<cmp-a></cmp-a>`);
+      await c.fs.writeFile(path.join(root, 'src', 'index.html'), `<cmp-a></cmp-a>`);
       await c.fs.commit();
-    });
-
-
-    it('should not rebuild without js changes', async () => {
-      c.config.watch = true;
-      c.config.bundles = [
-        { components: ['cmp-a', 'cmp-b'] },
-        { components: ['cmp-c'] }
-      ];
-      await c.fs.writeFiles({
-        '/src/cmp-a.tsx': `@Component({ tag: 'cmp-a' }) export class CmpA {}`,
-        '/src/cmp-b.tsx': `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
-        '/src/cmp-c.tsx': `@Component({ tag: 'cmp-c' }) export class CmpC {}`
-      });
-      await c.fs.commit();
-
-      // initial build
-      let r = await c.build();
-      expect(r.diagnostics).toEqual([]);
-
-      const firstBuildText = await c.fs.readFile('/www/build/app/cmp-a.js');
-
-      // create a rebuild listener
-      const rebuildListener = c.once('rebuild');
-
-      // write the same darn thing, no actual change
-      await c.fs.writeFile('/src/cmp-a.tsx', `@Component({ tag: 'cmp-a' }) export class CmpA {}`, { clearFileCache: true });
-      await c.fs.commit();
-
-      // kick off a rebuild
-      c.trigger('fileUpdate', '/src/cmp-a.tsx');
-
-      // wait for the rebuild to finish
-      // get the rebuild results
-      r = await rebuildListener;
-
-      expect(r.diagnostics).toEqual([]);
-      expect(r.components.length).toBe(3);
-      expect(r.components[0].tag).toBe('cmp-a');
-      expect(r.components[1].tag).toBe('cmp-b');
-      expect(r.components[2].tag).toBe('cmp-c');
-
-      const secondBuildText = await c.fs.readFile('/www/build/app/cmp-a.js');
-      expect(firstBuildText).toBe(secondBuildText);
     });
 
     it('should build 2 bundles of 3 components', async () => {
@@ -64,9 +22,9 @@ describe('bundle-module', () => {
         { components: ['cmp-c'] }
       ];
       await c.fs.writeFiles({
-        '/src/cmp-a.tsx': `@Component({ tag: 'cmp-a' }) export class CmpA {}`,
-        '/src/cmp-b.tsx': `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
-        '/src/cmp-c.tsx': `@Component({ tag: 'cmp-c' }) export class CmpC {}`
+        [path.join(root, 'src', 'cmp-a.tsx')]: `@Component({ tag: 'cmp-a' }) export class CmpA {}`,
+        [path.join(root, 'src', 'cmp-b.tsx')]: `@Component({ tag: 'cmp-b' }) export class CmpB {}`,
+        [path.join(root, 'src', 'cmp-c.tsx')]: `@Component({ tag: 'cmp-c' }) export class CmpC {}`
       });
       await c.fs.commit();
 
@@ -79,8 +37,8 @@ describe('bundle-module', () => {
       expect(r.bundleBuildCount).toBe(2);
 
       expectFiles(c.fs, [
-        '/www/build/app/cmp-a.js',
-        '/www/build/app/cmp-c.js'
+        path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'),
+        path.join(root, 'www', 'build', 'app', 'cmp-c.entry.js')
       ]);
     });
 
@@ -90,17 +48,17 @@ describe('bundle-module', () => {
         { components: ['cmp-b'] }
       ];
       await c.fs.writeFiles({
-        '/src/cmp-a.tsx': `
+        [path.join(root, 'src', 'cmp-a.tsx')]: `
           import json from './package.json';
           console.log(json.thename);
           @Component({ tag: 'cmp-a' }) export class CmpA {}
         `,
-        '/src/cmp-b.tsx': `
+        [path.join(root, 'src', 'cmp-b.tsx')]: `
           import json from './package.json';
           console.log(json.thename);
           @Component({ tag: 'cmp-b' }) export class CmpB {}
         `,
-        '/src/package.json': `
+        [path.join(root, 'src', 'package.json')]: `
           {
             "thename": "test"
           }
@@ -111,10 +69,13 @@ describe('bundle-module', () => {
       const r = await c.build();
       expect(r.diagnostics).toEqual([]);
 
+      console.log(c.fs.keys);
       expectFiles(c.fs, [
-        '/www/build/app/cmp-a.js',
-        '/www/build/app/cmp-b.js',
-        '/www/build/app/chunk1.js'
+        path.join(root, 'www', 'build', 'app', 'cmp-a.entry.js'),
+        path.join(root, 'www', 'build', 'app', 'cmp-b.entry.js'),
+        path.join(root, 'www', 'build', 'app', 'cmp-a.sc.entry.js'),
+        path.join(root, 'www', 'build', 'app', 'cmp-b.sc.entry.js'),
+        path.join(root, 'www', 'build', 'app', 'chunk-696f2b54.js'),
       ]);
     });
 

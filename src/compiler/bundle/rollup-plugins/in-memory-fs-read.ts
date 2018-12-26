@@ -1,8 +1,10 @@
 import * as d from '../../../declarations';
+import { ENTRY_KEY_PREFIX } from '../../entries/entry-modules';
 import { normalizePath } from '../../util';
 
 
-export default function inMemoryFsRead(config: d.Config, path: d.Path, compilerCtx: d.CompilerCtx) {
+export default function inMemoryFsRead(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, entryModules?: d.EntryModule[]) {
+  const path = config.sys.path;
   const assetsCache: d.FilesMap = {};
   let tsFileNames: string[];
 
@@ -10,10 +12,29 @@ export default function inMemoryFsRead(config: d.Config, path: d.Path, compilerC
     name: 'inMemoryFsRead',
 
     async resolveId(importee: string, importer: string) {
+      if (/\0/.test(importee)) {
+        // ignore IDs with null character, these belong to other plugins
+        return null;
+      }
+
       // note: node-resolve plugin has already ran
       // we can assume the importee is a file path
+      if (!buildCtx.isActiveBuild) {
+        return importee;
+      }
 
       const orgImportee = importee;
+
+      // Entry files live in inMemoryFs
+      if (path.basename(importee).startsWith(ENTRY_KEY_PREFIX) && entryModules) {
+        const bundle = entryModules.find(b => b.filePath === importee);
+        if (bundle) {
+          return bundle.filePath;
+        }
+
+        buildCtx.debug(`bundleEntryFilePlugin resolveId, unable to find entry key: ${importee}`);
+        buildCtx.debug(`entryModules entryKeys: ${entryModules.map(em => em.filePath).join(', ')}`);
+      }
 
       if (!path.isAbsolute(importee)) {
         importee = path.resolve(importer ? path.dirname(importer) : path.resolve(), importee);
@@ -119,7 +140,7 @@ export default function inMemoryFsRead(config: d.Config, path: d.Path, compilerC
                 }
 
               } catch (e) {
-                config.logger.debug(`asset ${assetsFilePath} did not exist`);
+                buildCtx.debug(`asset ${assetsFilePath} did not exist`);
               }
             }
           }
@@ -130,6 +151,10 @@ export default function inMemoryFsRead(config: d.Config, path: d.Path, compilerC
     },
 
     async load(sourcePath: string) {
+      if (!buildCtx.isActiveBuild) {
+        return `/* build aborted */`;
+      }
+
       sourcePath = normalizePath(sourcePath);
 
       if (typeof assetsCache[sourcePath] === 'string') {

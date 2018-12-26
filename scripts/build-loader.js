@@ -1,33 +1,22 @@
 const fs = require('fs-extra');
-const path = require('path');
 
 
-const ROOT_DIR = path.join(__dirname, '../');
-const DST_DIR = path.join(ROOT_DIR, 'dist');
-const TRANSPILED_DIR = path.join(DST_DIR, 'transpiled-core');
-const DIST_CLIENT_DIR = path.join(DST_DIR, 'client');
+function buildLoader(inputLoaderFile, outputLoaderFile) {
+  let content = fs.readFileSync(inputLoaderFile, 'utf8');
 
+  content = content.replace(/export function /g, 'function ');
 
-// empty out the dist/client directory
-fs.ensureDirSync(DIST_CLIENT_DIR);
+  content = `(function(win, doc, namespace, fsNamespace, resourcesUrl, appCore, appCoreSsr, appCorePolyfilled, hydratedCssClass, components) {
 
+  ${content}
 
-// tasks
-const srcLoaderPath = path.join(TRANSPILED_DIR, 'client/loader.js');
-const dstLoaderPath = path.join(DST_DIR, 'client/loader.js');
+  init(win, doc, namespace, fsNamespace, resourcesUrl, appCore, appCoreSsr, appCorePolyfilled, hydratedCssClass, components);
 
-let content = fs.readFileSync(srcLoaderPath, 'utf-8');
+  })(window, document, '__APP__');`;
 
-content = content.replace(/export function /g, 'function ');
+  fs.writeFileSync(outputLoaderFile, content);
 
-content = `(function(win, doc, namespace, fsNamespace, resourcesUrl, appCore, appCoreSsr, appCorePolyfilled, hydratedCssClass, components) {
+  console.log(`✅ loader: ${outputLoaderFile}`);
+}
 
-${content}
-
-init(win, doc, namespace, fsNamespace, resourcesUrl, appCore, appCoreSsr, appCorePolyfilled, hydratedCssClass, components);
-
-})(window, document, '__APP__');`;
-
-fs.writeFileSync(dstLoaderPath, content);
-
-console.log(`✅ loader: ${dstLoaderPath}`);
+module.exports = buildLoader;

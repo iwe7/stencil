@@ -5,23 +5,23 @@ import { initHostElement } from '../core/init-host-element';
 import { initHostSnapshot } from '../core/host-snapshot';
 
 
-export function connectChildElements(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, parentElm: Element) {
+export function connectChildElements(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, parentElm: Element, perf: Performance) {
   if (parentElm && parentElm.children) {
     for (let i = 0; i < parentElm.children.length; i++) {
-      connectElement(config, plt, App, hydrateResults, parentElm.children[i]);
-      connectChildElements(config, plt, App, hydrateResults, parentElm.children[i]);
+      connectElement(config, plt, App, hydrateResults, parentElm.children[i], perf);
+      connectChildElements(config, plt, App, hydrateResults, parentElm.children[i], perf);
     }
   }
 }
 
 
-export function connectElement(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, elm: Element) {
+export function connectElement(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, elm: Element, perf: Performance) {
   if (!plt.hasConnectedMap.has(elm as d.HostElement)) {
     const tagName = elm.tagName.toLowerCase();
     const cmpMeta = plt.getComponentMeta(elm);
 
     if (cmpMeta) {
-      connectHostElement(config, plt, App, hydrateResults, elm as d.HostElement, cmpMeta);
+      connectHostElement(config, plt, App, hydrateResults, elm as d.HostElement, cmpMeta, perf);
 
     } else if (tagName === 'script') {
       connectScriptElement(hydrateResults, elm as HTMLScriptElement);
@@ -38,16 +38,18 @@ export function connectElement(config: d.Config, plt: d.PlatformApi, App: d.AppG
 }
 
 
-function connectHostElement(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, elm: d.HostElement, cmpMeta: d.ComponentMeta) {
+function connectHostElement(config: d.Config, plt: d.PlatformApi, App: d.AppGlobal, hydrateResults: d.HydrateResults, elm: d.HostElement, cmpMeta: d.ComponentMeta, perf: Performance) {
+  const hostSnapshot = initHostSnapshot(plt.domApi, cmpMeta, elm);
+  plt.hostSnapshotMap.set(elm, hostSnapshot);
+
   if (!cmpMeta.componentConstructor) {
-    const hostSnapshot = initHostSnapshot(plt.domApi, cmpMeta, elm);
-    plt.requestBundle(cmpMeta, elm, hostSnapshot);
+    plt.requestBundle(cmpMeta, elm);
   }
 
-  if (cmpMeta.encapsulation !== ENCAPSULATION.ShadowDom) {
-    initHostElement(plt, cmpMeta, elm, config.hydratedCssClass);
+  if (cmpMeta.encapsulationMeta !== ENCAPSULATION.ShadowDom) {
+    initHostElement(plt, cmpMeta, elm, config.hydratedCssClass, perf);
 
-    connectedCallback(plt, cmpMeta, elm);
+    connectedCallback(plt, cmpMeta, elm, perf);
   }
 
   connectComponentOnReady(App, elm);
@@ -72,17 +74,10 @@ function connectHostElement(config: d.Config, plt: d.PlatformApi, App: d.AppGlob
 
 
 export function connectComponentOnReady(App: d.AppGlobal, elm: d.HostElement) {
-  (elm as any).componentOnReady = function componentOnReady(cb?: () => void): any {
-    const elm = this;
-
-    if (cb) {
-      App.componentOnReady(elm, cb);
-
-    } else {
-      return new Promise(resolve => {
-        App.componentOnReady(elm, resolve);
-      });
-    }
+  elm.componentOnReady = function componentOnReady(): any {
+    return new Promise(resolve => {
+      App.componentOnReady(elm, resolve);
+    });
   };
 }
 

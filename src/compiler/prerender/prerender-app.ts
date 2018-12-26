@@ -29,6 +29,25 @@ export async function prerenderOutputTargets(config: d.Config, compilerCtx: d.Co
 }
 
 
+export function shouldPrerender(config: d.Config) {
+  if (!config.srcIndexHtml) {
+    return false;
+  }
+  const outputTargets = (config.outputTargets as d.OutputTargetWww[]).filter(o => {
+    return o.type === 'www' && o.indexHtml && o.hydrateComponents && o.prerenderLocations && o.prerenderLocations.length > 0;
+  });
+  return (outputTargets.length > 0);
+}
+
+/**
+ * shouldPrerenderExternal
+ * @description Checks if the cli flag has been set that a external prerenderer will be used
+ * @param config build config
+ */
+export function shouldPrerenderExternal(config: d.Config) {
+  return config.flags && config.flags.prerenderExternal;
+}
+
 async function prerenderOutputTarget(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, outputTarget: d.OutputTargetWww, entryModules: d.EntryModule[]) {
   // if there was src index.html file, then the process before this one
   // would have already loaded and updated the src index to its www path
@@ -40,7 +59,7 @@ async function prerenderOutputTarget(config: d.Config, compilerCtx: d.CompilerCt
 
   if (typeof indexHtml !== 'string') {
     // looks like we don't have an index html file, which is fine
-    config.logger.debug(`prerenderApp, missing index.html for prerendering`);
+    buildCtx.debug(`prerenderApp, missing index.html for prerendering`);
     return [];
   }
 
@@ -59,7 +78,7 @@ async function prerenderOutputTarget(config: d.Config, compilerCtx: d.CompilerCt
 
 async function runPrerenderApp(config: d.Config, compilerCtx: d.CompilerCtx, buildCtx: d.BuildCtx, outputTarget: d.OutputTargetWww, entryModules: d.EntryModule[], prerenderQueue: d.PrerenderLocation[], indexHtml: string) {
   // keep track of how long the entire build process takes
-  const timeSpan = config.logger.createTimeSpan(`prerendering started`, !outputTarget.hydrateComponents);
+  const timeSpan = buildCtx.createTimeSpan(`prerendering started`, !outputTarget.hydrateComponents);
 
   const hydrateResults: d.HydrateResults[] = [];
 
@@ -162,5 +181,9 @@ async function writePrerenderDest(config: d.Config, compilerCtx: d.CompilerCtx, 
 
   // add the prerender html content it to our collection of
   // files that need to be saved when we're all ready
-  await compilerCtx.fs.writeFile(filePath, results.html);
+  await compilerCtx.fs.writeFile(filePath, results.html, { useCache: false });
+
+  // write the files now
+  // and since we're not using cache it'll free up its memory
+  await compilerCtx.fs.commit();
 }

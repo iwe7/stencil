@@ -1,4 +1,10 @@
 
-export { flush, render, transpile } from './public-test-suite';
+export { createJestPuppeteerEnvironment } from './jest/jest-environment';
+export { createTestRunner } from './jest/jest-runner';
+export { E2EElement, E2EPage } from './puppeteer/puppeteer-declarations';
 export { h } from '../renderer/vdom/h';
-export { mockDocument, mockElement, mockWindow } from './mocks';
+export { jestPreprocessor } from './jest/jest-preprocessor';
+export { jestSetupTestFramework } from './jest/jest-setup-test-framework';
+export { newE2EPage } from './puppeteer/puppeteer-page';
+export { Testing } from './testing';
+export { transpile } from './test-transpile';

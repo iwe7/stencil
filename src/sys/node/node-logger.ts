@@ -1,19 +1,12 @@
-import { Chalk } from 'chalk';
 import * as d from '../../declarations';
-import * as fs from 'fs';
-import * as path from 'path';
+import color from 'ansi-colors';
+import fs from 'graceful-fs';
 
 
 export class NodeLogger implements d.Logger {
   private _level = 'info';
-  private chalk: Chalk;
   private writeLogQueue: string[] = [];
   buildLogFilePath: string = null;
-
-  constructor() {
-    const sysUtil = require(path.join(__dirname, './sys-util.js'));
-    this.chalk = sysUtil.chalk;
-  }
 
   get level() {
     return this._level;
@@ -24,7 +17,7 @@ export class NodeLogger implements d.Logger {
       l = l.toLowerCase().trim();
 
       if (LOG_LEVELS.indexOf(l) === -1) {
-        this.error(`Invalid log level '${this.chalk.bold(l)}' (choose from: ${LOG_LEVELS.map(l => this.chalk.bold(l)).join(', ')})`);
+        this.error(`Invalid log level '${color.bold(l)}' (choose from: ${LOG_LEVELS.map(l => color.bold(l)).join(', ')})`);
       } else {
         this._level = l;
       }
@@ -65,7 +58,7 @@ export class NodeLogger implements d.Logger {
   warnPrefix(lines: string[]) {
     if (lines.length) {
       const prefix = '[ WARN  ]';
-      lines[0] = this.bold(this.chalk.yellow(prefix)) + lines[0].substr(prefix.length);
+      lines[0] = this.bold(color.yellow(prefix)) + lines[0].substr(prefix.length);
     }
   }
 
@@ -91,7 +84,7 @@ export class NodeLogger implements d.Logger {
   errorPrefix(lines: string[]) {
     if (lines.length) {
       const prefix = '[ ERROR ]';
-      lines[0] = this.bold(this.chalk.red(prefix)) + lines[0].substr(prefix.length);
+      lines[0] = this.bold(color.red(prefix)) + lines[0].substr(prefix.length);
     }
   }
 
@@ -114,11 +107,11 @@ export class NodeLogger implements d.Logger {
         ('0' + d.getSeconds()).slice(-2) + '.' +
         Math.floor((d.getMilliseconds() / 1000) * 10) + ']';
 
-      lines[0] = this.chalk.cyan(prefix) + lines[0].substr(prefix.length);
+      lines[0] = color.cyan(prefix) + lines[0].substr(prefix.length);
     }
   }
 
-  timespanStart(startMsg: string, debug: boolean) {
+  timespanStart(startMsg: string, debug: boolean, appendTo: string[]) {
     const msg = [`${startMsg} ${this.dim('...')}`];
 
     if (debug) {
@@ -134,10 +127,13 @@ export class NodeLogger implements d.Logger {
       this.infoPrefix(lines);
       console.log(lines.join('\n'));
       this.queueWriteLog('I', [`${startMsg} ...`]);
+      if (appendTo) {
+        appendTo.push(`${startMsg} ...`);
+      }
     }
   }
 
-  timespanFinish(finishMsg: string, timeSuffix: string, color: 'red', bold: boolean, newLineSuffix: boolean, debug: boolean) {
+  timespanFinish(finishMsg: string, timeSuffix: string, color: 'red', bold: boolean, newLineSuffix: boolean, debug: boolean, appendTo: string[]) {
     let msg = finishMsg;
 
     if (color) {
@@ -162,6 +158,10 @@ export class NodeLogger implements d.Logger {
       this.infoPrefix(lines);
       console.log(lines.join('\n'));
       this.queueWriteLog('I', [`${finishMsg} ${timeSuffix}`]);
+
+      if (appendTo) {
+        appendTo.push(`${finishMsg} ${timeSuffix}`);
+      }
     }
 
     if (newLineSuffix) {
@@ -214,52 +214,52 @@ export class NodeLogger implements d.Logger {
     this.writeLogQueue.length = 0;
   }
 
-  color(msg: string, color: 'red'|'green'|'yellow'|'blue'|'magenta'|'cyan'|'gray') {
-    return (this.chalk as any)[color](msg);
+  color(msg: string, colorName: 'red'|'green'|'yellow'|'blue'|'magenta'|'cyan'|'gray') {
+    return (color as any)[colorName](msg);
   }
 
   red(msg: string) {
-    return this.chalk.red(msg);
+    return color.red(msg);
   }
 
   green(msg: string) {
-    return this.chalk.green(msg);
+    return color.green(msg);
   }
 
   yellow(msg: string) {
-    return this.chalk.yellow(msg);
+    return color.yellow(msg);
   }
 
   blue(msg: string) {
-    return this.chalk.blue(msg);
+    return color.blue(msg);
   }
 
   magenta(msg: string) {
-    return this.chalk.magenta(msg);
+    return color.magenta(msg);
   }
 
   cyan(msg: string) {
-    return this.chalk.cyan(msg);
+    return color.cyan(msg);
   }
 
   gray(msg: string) {
-    return this.chalk.gray(msg);
+    return color.gray(msg);
   }
 
   bold(msg: string) {
-    return this.chalk.bold(msg);
+    return color.bold(msg);
   }
 
   dim(msg: string) {
-    return this.chalk.dim(msg);
+    return color.dim(msg);
   }
 
   private shouldLog(level: string): boolean {
     return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(this.level);
   }
 
-  createTimeSpan(startMsg: string, debug = false): d.LoggerTimeSpan {
-    return new CmdTimeSpan(this, startMsg, debug);
+  createTimeSpan(startMsg: string, debug = false, appendTo?: string[]): d.LoggerTimeSpan {
+    return new CmdTimeSpan(this, startMsg, debug, appendTo);
   }
 
   printDiagnostics(diagnostics: d.Diagnostic[]) {
@@ -277,14 +277,38 @@ export class NodeLogger implements d.Logger {
   printDiagnostic(d: d.Diagnostic) {
     const outputLines = wordWrap([d.messageText], getColumns());
 
-    if (d.header && d.header !== 'build error' && d.header !== 'build warn') {
-      outputLines.unshift(INDENT + d.header);
+    let header = '';
+
+    if (d.header && d.header !== 'Build Error') {
+      header += d.header;
+    }
+
+    if (d.relFilePath) {
+      if (header.length > 0) {
+        header += ': ';
+      }
+
+      header += color.cyan(d.relFilePath);
+
+      if (typeof d.lineNumber === 'number' && d.lineNumber > -1) {
+        header += color.dim(`:`);
+        header += color.yellow(`${d.lineNumber}`);
+
+        if (typeof d.columnNumber === 'number' && d.columnNumber > -1) {
+          header += color.dim(`:`);
+          header += color.yellow(`${d.columnNumber}`);
+        }
+      }
+    }
+
+    if (header.length > 0) {
+      outputLines.unshift(INDENT + header);
     }
 
     outputLines.push('');
 
     if (d.lines && d.lines.length) {
-      const lines = prepareLines(d.lines, 'text');
+      const lines = prepareLines(d.lines);
 
       lines.forEach(l => {
         if (!isMeaningfulLine(l.text)) {
@@ -303,8 +327,8 @@ export class NodeLogger implements d.Logger {
 
         msg = this.dim(msg);
 
-        if (d.language === 'javascript') {
-          msg += this.jsSyntaxHighlight(text);
+        if (d.language === 'typescript' || d.language === 'javascript') {
+          msg += this.javaScriptSyntaxHighlight(text);
         } else if (d.language === 'scss' || d.language === 'css') {
           msg += this.cssSyntaxHighlight(text);
         } else {
@@ -356,7 +380,7 @@ export class NodeLogger implements d.Logger {
     for (var i = 0; i < lineLength; i++) {
       var chr = errorLine.charAt(i);
       if (i >= errorCharStart && i < errorCharStart + errorLength) {
-        chr = this.chalk.bgRed(chr === '' ? ' ' : chr);
+        chr = color.bgRed(chr === '' ? ' ' : chr);
       }
       lineChars.push(chr);
     }
@@ -364,14 +388,14 @@ export class NodeLogger implements d.Logger {
     return lineChars.join('');
   }
 
-  jsSyntaxHighlight(text: string) {
+  javaScriptSyntaxHighlight(text: string) {
     if (text.trim().startsWith('//')) {
       return this.dim(text);
     }
 
     const words = text.split(' ').map(word => {
       if (JS_KEYWORDS.indexOf(word) > -1) {
-        return this.chalk.cyan(word);
+        return color.cyan(word);
       }
       return word;
     });
@@ -395,7 +419,7 @@ export class NodeLogger implements d.Logger {
         cssProp = false;
       }
       if (cssProp && safeChars.indexOf(c.toLowerCase()) > -1) {
-        chars.push(this.chalk.cyan(c));
+        chars.push(color.cyan(c));
         continue;
       }
 
@@ -414,11 +438,12 @@ class CmdTimeSpan {
   constructor(
     logger: NodeLogger,
     startMsg: string,
-    private debug: boolean
+    private debug: boolean,
+    private appendTo: string[]
   ) {
     this.logger = logger;
     this.start = Date.now();
-    this.logger.timespanStart(startMsg, debug);
+    this.logger.timespanStart(startMsg, debug, this.appendTo);
   }
 
   finish(msg: string, color?: 'red', bold?: boolean, newLineSuffix?: boolean) {
@@ -443,7 +468,8 @@ class CmdTimeSpan {
       color,
       bold,
       newLineSuffix,
-      this.debug
+      this.debug,
+      this.appendTo
     );
   }
 
@@ -537,17 +563,17 @@ export function wordWrap(msg: any[], columns: number) {
 }
 
 
-function prepareLines(orgLines: d.PrintLine[], code: 'text'|'html') {
+function prepareLines(orgLines: d.PrintLine[]) {
   const lines: d.PrintLine[] = JSON.parse(JSON.stringify(orgLines));
 
   for (let i = 0; i < 100; i++) {
-    if (!eachLineHasLeadingWhitespace(lines, code)) {
+    if (!eachLineHasLeadingWhitespace(lines)) {
       return lines;
     }
     for (let i = 0; i < lines.length; i++) {
-      (<any>lines[i])[code] = (<any>lines[i])[code].substr(1);
+      lines[i].text = lines[i].text.substr(1);
       lines[i].errorCharStart--;
-      if (!(<any>lines[i])[code].length) {
+      if (!(lines[i]).text.length) {
         return lines;
       }
     }
@@ -557,19 +583,21 @@ function prepareLines(orgLines: d.PrintLine[], code: 'text'|'html') {
 }
 
 
-function eachLineHasLeadingWhitespace(lines: d.PrintLine[], code: 'text'|'html') {
+function eachLineHasLeadingWhitespace(lines: d.PrintLine[]) {
   if (!lines.length) {
     return false;
   }
+
   for (var i = 0; i < lines.length; i++) {
-    if ( !(<any>lines[i])[code] || (<any>lines[i])[code].length < 1) {
+    if (!lines[i].text || lines[i].text.length < 1) {
       return false;
     }
-    const firstChar = (<any>lines[i])[code].charAt(0);
+    const firstChar = lines[i].text.charAt(0);
     if (firstChar !== ' ' && firstChar !== '\t') {
       return false;
     }
   }
+
   return true;
 }
 
@@ -577,14 +605,10 @@ function eachLineHasLeadingWhitespace(lines: d.PrintLine[], code: 'text'|'html')
 function isMeaningfulLine(line: string) {
   if (line) {
     line = line.trim();
-    if (line.length) {
-      return (MEH_LINES.indexOf(line) < 0);
-    }
+    return line.length > 0;
   }
   return false;
 }
-
-const MEH_LINES = [';', ':', '{', '}', '(', ')', '/**', '/*', '*/', '*', '({', '})'];
 
 
 const JS_KEYWORDS = [

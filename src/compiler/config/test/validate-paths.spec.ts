@@ -1,39 +1,58 @@
-import { Config } from '../../../declarations';
+import * as d from '../../../declarations';
 import { mockLogger, mockStencilSystem } from '../../../testing/mocks';
+import { normalizePath } from '../../util';
 import { validateConfig } from '../validate-config';
 import * as path from 'path';
 
 
 describe('validatePaths', () => {
 
-  let config: Config;
+  let config: d.Config;
   const logger = mockLogger();
   const sys = mockStencilSystem();
+
+  const ROOT = path.resolve('/');
 
   beforeEach(() => {
     config = {
       sys: sys,
       logger: logger,
-      rootDir: '/User/some/path/',
-      suppressTypeScriptErrors: true
+      rootDir: path.join(ROOT, 'User', 'my-app')
     };
   });
 
 
+  it('should set absolute cacheDir', () => {
+    config.cacheDir = path.join(ROOT, 'some', 'custom', 'cache');
+    validateConfig(config);
+    expect(config.cacheDir).toBe(normalizePath(path.join(ROOT, 'some', 'custom', 'cache')));
+  });
+
+  it('should set relative cacheDir', () => {
+    config.cacheDir = 'custom-cache';
+    validateConfig(config);
+    expect(config.cacheDir).toBe(normalizePath(path.join(ROOT, 'User', 'my-app', 'custom-cache')));
+  });
+
+  it('should set default cacheDir', () => {
+    validateConfig(config);
+    expect(config.cacheDir).toBe(normalizePath(path.join(ROOT, 'User', 'my-app', '.stencil')));
+  });
+
   it('should set default wwwIndexHtml and convert to absolute path', () => {
     validateConfig(config);
-    expect(path.basename(config.outputTargets[0].indexHtml)).toBe('index.html');
-    expect(path.isAbsolute(config.outputTargets[0].indexHtml)).toBe(true);
+    expect(path.basename((config.outputTargets as d.OutputTargetWww[])[0].indexHtml)).toBe('index.html');
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetWww[])[0].indexHtml)).toBe(true);
   });
 
   it('should convert a custom wwwIndexHtml to absolute path', () => {
     config.outputTargets = [{
       type: 'www',
-      indexHtml: 'assets/custom-index.html'
-    }];
+      indexHtml: path.join('assets', 'custom-index.html')
+    }] as d.OutputTargetWww[];
     validateConfig(config);
-    expect(path.basename(config.outputTargets[0].indexHtml)).toBe('custom-index.html');
-    expect(path.isAbsolute(config.outputTargets[0].indexHtml)).toBe(true);
+    expect(path.basename((config.outputTargets as d.OutputTargetWww[])[0].indexHtml)).toBe('custom-index.html');
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetWww[])[0].indexHtml)).toBe(true);
   });
 
   it('should set default indexHtmlSrc and convert to absolute path', () => {
@@ -46,23 +65,23 @@ describe('validatePaths', () => {
     config.outputTargets = [{
       type: 'www',
       empty: false
-    }];
+    }] as d.OutputTargetWww[];
     validateConfig(config);
-    expect(config.outputTargets[0].empty).toBe(false);
+    expect((config.outputTargets as d.OutputTargetWww[])[0].empty).toBe(false);
   });
 
   it('should set default emptyWWW to true', () => {
     validateConfig(config);
-    expect(config.outputTargets[0].empty).toBe(true);
+    expect((config.outputTargets as d.OutputTargetWww[])[0].empty).toBe(true);
   });
 
   it('should set emptyWWW to false', () => {
     config.outputTargets = [{
       type: 'www',
       empty: false
-    }];
+    }] as d.OutputTargetWww[];
     validateConfig(config);
-    expect(config.outputTargets[0].empty).toBe(false);
+    expect((config.outputTargets as d.OutputTargetWww[])[0].empty).toBe(false);
   });
 
   it('should set default collection dir and convert to absolute path', () => {
@@ -70,14 +89,8 @@ describe('validatePaths', () => {
       type: 'dist'
     }];
     validateConfig(config);
-    expect(path.basename(config.outputTargets[0].collectionDir)).toBe('collection');
-    expect(path.isAbsolute(config.outputTargets[0].collectionDir)).toBe(true);
-  });
-
-  it('should set default tsconfig and convert to absolute path', () => {
-    validateConfig(config);
-    expect(path.basename(config.tsconfig)).toBe('tsconfig.json');
-    expect(path.isAbsolute(config.tsconfig)).toBe(true);
+    expect(path.basename((config.outputTargets as d.OutputTargetDist[])[0].collectionDir)).toBe('collection');
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetDist[])[0].collectionDir)).toBe(true);
   });
 
   it('should set default types dir and convert to absolute path', () => {
@@ -85,30 +98,30 @@ describe('validatePaths', () => {
       type: 'dist'
     }];
     validateConfig(config);
-    expect(path.basename(config.outputTargets[0].typesDir)).toBe('types');
-    expect(path.isAbsolute(config.outputTargets[0].typesDir)).toBe(true);
+    expect(path.basename((config.outputTargets as d.OutputTargetDist[])[0].typesDir)).toBe('types');
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetDist[])[0].typesDir)).toBe(true);
   });
 
   it('should set default build dir and convert to absolute path', () => {
     validateConfig(config);
     const normalizedPathSep = '/';
-    const parts = config.outputTargets[0].buildDir.split(normalizedPathSep);
+    const parts = (config.outputTargets as d.OutputTargetDist[])[0].buildDir.split(normalizedPathSep);
     expect(parts[parts.length - 1]).toBe('build');
     expect(parts[parts.length - 2]).toBe('www');
-    expect(path.isAbsolute(config.outputTargets[0].buildDir)).toBe(true);
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetDist[])[0].buildDir)).toBe(true);
   });
 
   it('should set build dir w/ custom www', () => {
     config.outputTargets = [{
       type: 'www',
       dir: 'custom-www'
-    }];
+    }] as d.OutputTargetWww[];
     validateConfig(config);
     const normalizedPathSep = '/';
-    const parts = config.outputTargets[0].buildDir.split(normalizedPathSep);
+    const parts = (config.outputTargets as d.OutputTargetDist[])[0].buildDir.split(normalizedPathSep);
     expect(parts[parts.length - 1]).toBe('build');
     expect(parts[parts.length - 2]).toBe('custom-www');
-    expect(path.isAbsolute(config.outputTargets[0].buildDir)).toBe(true);
+    expect(path.isAbsolute((config.outputTargets as d.OutputTargetDist[])[0].buildDir)).toBe(true);
   });
 
   it('should set src dir from incorrect config case', () => {
@@ -139,31 +152,31 @@ describe('validatePaths', () => {
   });
 
   it('should convert globalScript to absolute path, if a globalScript property was provided', () => {
-    config.globalScript = 'src/global/index.ts';
+    config.globalScript = path.join('src', 'global', 'index.ts');
     validateConfig(config);
     expect(path.basename(config.globalScript)).toBe('index.ts');
     expect(path.isAbsolute(config.globalScript)).toBe(true);
   });
 
   it('should handle absolute paths on re-validate', () => {
-    config.globalStyle = 'src/global/styles1.css' as any;
+    config.globalStyle = path.join('src', 'global', 'styles1.css');
     validateConfig(config);
-    expect(path.basename(config.globalStyle[0])).toBe('styles1.css');
-    expect(path.isAbsolute(config.globalStyle[0])).toBe(true);
+    expect(path.basename(config.globalStyle)).toBe('styles1.css');
+    expect(path.isAbsolute(config.globalStyle)).toBe(true);
 
-    const orgPath = config.globalStyle[0];
+    const orgPath = config.globalStyle;
 
     config._isValidated = false;
     validateConfig(config);
 
-    expect(config.globalStyle[0]).toBe(orgPath);
+    expect(config.globalStyle).toBe(orgPath);
   });
 
   it('should convert globalStyle string to absolute path array, if a globalStyle property was provided', () => {
-    config.globalStyle = 'src/global/styles.css' as any;
+    config.globalStyle = path.join('src', 'global', 'styles.css');
     validateConfig(config);
-    expect(path.basename(config.globalStyle[0])).toBe('styles.css');
-    expect(path.isAbsolute(config.globalStyle[0])).toBe(true);
+    expect(path.basename(config.globalStyle)).toBe('styles.css');
+    expect(path.isAbsolute(config.globalStyle)).toBe(true);
   });
 
 });

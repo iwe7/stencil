@@ -13,13 +13,13 @@ describe('validateOutputTargetWww', () => {
       },
       rootDir: '/',
       flags: {}
-    };
+    } as any;
   });
 
   it('should www with sub directory', () => {
     const outputTarget: d.OutputTargetWww = {
       type: 'www',
-      dir: 'www/docs'
+      dir: path.join('www', 'docs')
     };
     config.outputTargets = [outputTarget];
     validateOutputTargetWww(config);

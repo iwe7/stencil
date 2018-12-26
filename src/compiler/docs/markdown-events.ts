@@ -1,56 +1,36 @@
-import { EventMeta } from '../../declarations';
-import { getMemberDocumentation } from './docs-util';
+import * as d from '../../declarations';
+import { MarkdownTable } from './docs-util';
 
 
-export class MarkdownEvents {
-  private rows: Row[] = [];
+export function eventsToMarkdown(events: d.JsonDocsEvent[]) {
 
-  addRow(eventMeta: EventMeta) {
-    this.rows.push(new Row(eventMeta));
-  }
-
-  toMarkdown() {
-    const content: string[] = [];
-    if (!this.rows.length) {
-      return content;
-    }
-
-    content.push(`## Events`);
-    content.push(``);
-
-    this.rows = this.rows.sort((a, b) => {
-      if (a.eventMeta.eventName < b.eventMeta.eventName) return -1;
-      if (a.eventMeta.eventName > b.eventMeta.eventName) return 1;
-      return 0;
-    });
-
-    this.rows.forEach(row => {
-      content.push(...row.toMarkdown());
-    });
-
+  const content: string[] = [];
+  if (events.length === 0) {
     return content;
   }
-}
 
+  content.push(`## Events`);
+  content.push(``);
 
-class Row {
+  const table = new MarkdownTable();
 
-  constructor(public eventMeta: EventMeta) {}
+  table.addHeader([
+    'Event',
+    'Description',
+    'Detail'
+  ]);
 
-  toMarkdown() {
-    const content: string[] = [];
+  events.forEach(ev => {
+    table.addRow([
+      `\`${ev.event}\``,
+      ev.docs,
+      ev.detail,
+    ]);
+  });
 
-    content.push(`#### ${this.eventMeta.eventName}`);
-    content.push(``);
+  content.push(...table.toMarkdown());
+  content.push(``);
+  content.push(``);
 
-    const doc = getMemberDocumentation(this.eventMeta.jsdoc);
-    if (doc) {
-      content.push(doc);
-      content.push(``);
-    }
-
-    content.push(``);
-
-    return content;
-  }
+  return content;
 }

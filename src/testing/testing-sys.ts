@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 
+const relDistPath = path.join(__dirname, '..', '..', 'dist');
+
 const nodeSys = require('../sys/node/index');
 export const NodeSystem: NodeSystemSystemConstructor = nodeSys.NodeSystem;
 
@@ -11,11 +13,13 @@ export interface NodeSystemSystemConstructor {
   new (fs: any): StencilSystem;
 }
 
-
 export class TestingSystem extends NodeSystem {
 
   constructor() {
-    super(new TestingFs());
+    const fs = new TestingFs();
+    super(fs);
+    this.createFsWatcher = null;
+    this.initWorkers(1, 1);
   }
 
   get compiler() {
@@ -26,10 +30,10 @@ export class TestingSystem extends NodeSystem {
   }
 
   getClientCoreFile(opts: any) {
-    const filePath = path.join(__dirname, '../../dist/client', opts.staticName);
+    const filePath = path.join(relDistPath, 'client', opts.staticName);
 
     return new Promise<string>((resolve, reject) => {
-      fs.readFile(filePath, 'utf-8', (err, data) => {
+      fs.readFile(filePath, 'utf8', (err, data) => {
         if (err) {
           reject(err);
         } else {
@@ -40,7 +44,7 @@ export class TestingSystem extends NodeSystem {
   }
 
   tmpdir() {
-    return '/tmp/testing';
+    return path.join(path.resolve('/'), 'tmp', 'testing');
   }
 
 }

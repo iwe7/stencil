@@ -1,20 +1,18 @@
-import { Diagnostic, PrintLine } from '../../declarations';
+import * as d from '../../declarations';
 
 
-export function cleanDiagnostics(diagnostics: Diagnostic[]) {
-  const cleaned: Diagnostic[] = [];
-
+export function cleanDiagnostics(diagnostics: d.Diagnostic[]) {
+  const cleaned: d.Diagnostic[] = [];
   const maxErrors = Math.min(diagnostics.length, MAX_ERRORS);
-  const dups: {[key: string]: boolean} = {};
-
+  const dups = new Set<string>();
   for (var i = 0; i < maxErrors; i++) {
     const d = diagnostics[i];
 
     const key = d.absFilePath + d.code + d.messageText + d.type;
-    if (dups[key]) {
+    if (dups.has(key)) {
       continue;
     }
-    dups[key] = true;
+    dups.add(key);
 
     if (d.messageText) {
       if (typeof (<any>d.messageText).message === 'string') {
@@ -29,72 +27,6 @@ export function cleanDiagnostics(diagnostics: Diagnostic[]) {
   }
 
   return cleaned;
-}
-
-
-export function formatFileName(rootDir: string, fileName: string) {
-  if (!rootDir || !fileName) return '';
-
-  fileName = fileName.replace(rootDir, '');
-  if (/\/|\\/.test(fileName.charAt(0))) {
-    fileName = fileName.substr(1);
-  }
-  if (fileName.length > 80) {
-    fileName = '...' + fileName.substr(fileName.length - 80);
-  }
-  return fileName;
-}
-
-
-export function formatHeader(type: string, fileName: string, rootDir: string, startLineNumber: number = null, endLineNumber: number = null) {
-  let header = `${type}: ${formatFileName(rootDir, fileName)}`;
-
-  if (startLineNumber !== null && startLineNumber > 0) {
-    if (endLineNumber !== null && endLineNumber > startLineNumber) {
-      header += `, lines: ${startLineNumber} - ${endLineNumber}`;
-    } else {
-      header += `, line: ${startLineNumber}`;
-    }
-  }
-
-  return header;
-}
-
-
-export function prepareLines(orgLines: PrintLine[], code: 'text'|'html') {
-  const lines: PrintLine[] = JSON.parse(JSON.stringify(orgLines));
-
-  for (let i = 0; i < 100; i++) {
-    if (!eachLineHasLeadingWhitespace(lines, code)) {
-      return lines;
-    }
-    for (let i = 0; i < lines.length; i++) {
-      (<any>lines[i])[code] = (<any>lines[i])[code].substr(1);
-      lines[i].errorCharStart--;
-      if (!(<any>lines[i])[code].length) {
-        return lines;
-      }
-    }
-  }
-
-  return lines;
-}
-
-
-function eachLineHasLeadingWhitespace(lines: PrintLine[], code: 'text'|'html') {
-  if (!lines.length) {
-    return false;
-  }
-  for (let i = 0; i < lines.length; i++) {
-    if ( !(<any>lines[i])[code] || (<any>lines[i])[code].length < 1) {
-      return false;
-    }
-    const firstChar = (<any>lines[i])[code].charAt(0);
-    if (firstChar !== ' ' && firstChar !== '\t') {
-      return false;
-    }
-  }
-  return true;
 }
 
 
